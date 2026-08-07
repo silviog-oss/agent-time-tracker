@@ -12,7 +12,7 @@ import {
   query, where, serverTimestamp, Timestamp, onSnapshot
 } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
-import { firebaseConfig, ALLOWED_EMAIL_DOMAIN, SUPER_ADMIN_EMAILS } from "./config.js?v=5";
+import { firebaseConfig, ALLOWED_EMAIL_DOMAIN, SUPER_ADMIN_EMAILS } from "./config.js?v=6";
 
 const isSuperAdminEmail = (email) =>
   (SUPER_ADMIN_EMAILS || []).map((e) => e.toLowerCase()).includes((email || "").toLowerCase());
@@ -32,7 +32,7 @@ const C = {
 };
 
 // ---------- App meta ----------
-const APP_VERSION = "v2.2.0";
+const APP_VERSION = "v2.2.1";
 
 // ---------- Global state ----------
 let ME = null;              // { uid, name, email, photo, role }
@@ -1184,9 +1184,9 @@ function confirmDeleteUser(uid, name) {
     </div>
   `);
   document.getElementById("m-cancel").addEventListener("click", closeModal);
-  document.getElementById("m-confirm").addEventListener("click", guard(async (e) => {
-    const btn = e.currentTarget;
-    btn.textContent = "Deleting…";
+  document.getElementById("m-confirm").addEventListener("click", guard(async () => {
+    const btn = document.getElementById("m-confirm");
+    if (btn) { btn.textContent = "Deleting…"; btn.disabled = true; }
     await adminDeleteUser(uid);
     closeModal();
     toast(`${name} deleted`);
