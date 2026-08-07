@@ -12,7 +12,7 @@ import {
   query, where, serverTimestamp, Timestamp, onSnapshot
 } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
-import { firebaseConfig, ALLOWED_EMAIL_DOMAIN, SUPER_ADMIN_EMAILS } from "./config.js?v=3";
+import { firebaseConfig, ALLOWED_EMAIL_DOMAIN, SUPER_ADMIN_EMAILS } from "./config.js?v=5";
 
 const isSuperAdminEmail = (email) =>
   (SUPER_ADMIN_EMAILS || []).map((e) => e.toLowerCase()).includes((email || "").toLowerCase());
@@ -32,7 +32,7 @@ const C = {
 };
 
 // ---------- App meta ----------
-const APP_VERSION = "v2.1.0";
+const APP_VERSION = "v2.2.0";
 
 // ---------- Global state ----------
 let ME = null;              // { uid, name, email, photo, role }
@@ -404,12 +404,26 @@ async function endActivityDoc(a) {
   await updateDoc(doc(C.activities, a.id), { end_time: now, duration: dur });
 }
 
-// Admin-only: change a task's start time (agents cannot — enforced in rules).
-async function adminSetActivityStart(id, hhmm, dayKey) {
-  const [h, m] = hhmm.split(":").map(Number);
-  const [y, mo, d] = dayKey.split("-").map(Number);
-  const when = new Date(y, mo - 1, d, h, m, 0, 0);
-  await updateDoc(doc(C.activities, id), { start_time: Timestamp.fromDate(when) });
+// Admin-only: edit a whole task (agents can't — enforced in rules).
+async function adminSaveActivity(id, { desc, startHHMM, endHHMM, planned }, dayKey) {
+  if (!desc) { toast("Description can't be empty.", true); return false; }
+  if (!startHHMM) { toast("Start time is required.", true); return false; }
+  const mk = (hhmm) => {
+    const [h, m] = hhmm.split(":").map(Number);
+    const [y, mo, d] = dayKey.split("-").map(Number);
+    return new Date(y, mo - 1, d, h, m, 0, 0);
+  };
+  const start = mk(startHHMM);
+  const end = endHHMM ? mk(endHHMM) : null;
+  if (end && end.getTime() < start.getTime()) { toast("End can't be before start.", true); return false; }
+  await updateDoc(doc(C.activities, id), {
+    description: desc,
+    start_time: Timestamp.fromDate(start),
+    end_time: end ? Timestamp.fromDate(end) : null,
+    duration: end ? Math.round((end.getTime() - start.getTime()) / 1000) : 0,
+    planned_minutes: Math.max(5, planned || 15),
+  });
+  return true;
 }
 
 // ============================================================
@@ -934,18 +948,21 @@ async function openAgentDetail(uid, u) {
     const data = await loadDay(uid, dayKey);
     const st = deriveStatus(data);
     const acts = [...data.activities].sort((a, b) => ms(a.start_time) - ms(b.start_time));
-    const startEditor = acts.length ? `
+    const editor = acts.length ? `
       <div class="card card-pad mt-18">
-        <div class="section-title">Adjust task start times (admin only)</div>
-        <div class="start-edit-list">
+        <div class="section-title">Edit tasks (admin only)</div>
+        <div class="task-edit-list">
           ${acts.map((a) => `
-            <div class="start-edit-row" data-id="${a.id}">
-              <span class="se-desc">${esc(a.description)}</span>
-              <input type="time" class="se-time" value="${hhmm(ms(a.start_time))}" />
-              <button class="btn btn-outline btn-sm se-save">Save</button>
+            <div class="task-edit-row" data-id="${a.id}">
+              <input class="te-desc" type="text" value="${esc(a.description)}" placeholder="Description" />
+              <label class="te-field"><span>Start</span><input class="te-start" type="time" value="${hhmm(ms(a.start_time))}" /></label>
+              <label class="te-field"><span>End</span><input class="te-end" type="time" value="${a.end_time ? hhmm(ms(a.end_time)) : ""}" /></label>
+              <label class="te-field"><span>Planned</span><input class="te-planned num" type="number" min="5" step="5" value="${a.planned_minutes || 15}" /></label>
+              <button class="btn btn-outline btn-sm te-save">Save</button>
+              <button class="btn btn-danger btn-sm te-del">Delete</button>
             </div>`).join("")}
         </div>
-        <p class="modal-hint">Agents can't change these — only you can.</p>
+        <p class="modal-hint">Leave End empty to keep a task still running. Agents can't edit these — only you can.</p>
       </div>` : "";
     viewEl.innerHTML = `
       <div class="page-head">
@@ -962,16 +979,24 @@ async function openAgentDetail(uid, u) {
         <div class="tile"><div class="t-label">Tasks</div><div class="t-value">${data.activities.length}</div></div>
       </div>
       <div class="card card-pad"><div class="section-title">Day summary — ${fmtDate(dayKey)}</div>${buildTimeline(data)}</div>
-      ${startEditor}
+      ${editor}
       <button class="btn btn-outline btn-sm mt-18" style="margin-top:18px" id="back-btn">← Back</button>`;
     $("detail-date").addEventListener("change", (e) => draw(e.target.value));
     $("back-btn").addEventListener("click", () => go(ME.role === "admin" ? "agents" : "dashboard"));
-    viewEl.querySelectorAll(".start-edit-row").forEach((row) => {
-      row.querySelector(".se-save").addEventListener("click", guard(async () => {
-        const val = row.querySelector(".se-time").value;
-        if (!val) return;
-        await adminSetActivityStart(row.dataset.id, val, dayKey);
-        toast("Start time updated");
+    viewEl.querySelectorAll(".task-edit-row").forEach((row) => {
+      const id = row.dataset.id;
+      row.querySelector(".te-save").addEventListener("click", guard(async () => {
+        const ok = await adminSaveActivity(id, {
+          desc: row.querySelector(".te-desc").value.trim(),
+          startHHMM: row.querySelector(".te-start").value,
+          endHHMM: row.querySelector(".te-end").value,
+          planned: parseInt(row.querySelector(".te-planned").value, 10) || 15,
+        }, dayKey);
+        if (ok) { toast("Task updated"); draw(dayKey); }
+      }));
+      row.querySelector(".te-del").addEventListener("click", guard(async () => {
+        await deleteDoc(doc(C.activities, id));
+        toast("Task deleted");
         draw(dayKey);
       }));
     });
@@ -1120,10 +1145,10 @@ async function viewSettings() {
   viewEl.innerHTML = skeleton();
   const users = (await getDocsArr(C.users)).sort((a, b) => a.name.localeCompare(b.name));
   viewEl.innerHTML = `
-    <div class="page-head"><div class="section-title">Agent roles</div></div>
-    <p class="greeting-sub">Promote an agent to admin or change them back. Admins can see all agents and reports.</p>
+    <div class="page-head"><div class="section-title">Agents & roles</div></div>
+    <p class="greeting-sub">Promote an agent to admin or change them back. Deleting a user removes their profile and all of their records.</p>
     <div class="card table-wrap">
-      <table><thead><tr><th>Agent</th><th>Email</th><th>Role</th><th></th></tr></thead><tbody>
+      <table><thead><tr><th>Agent</th><th>Email</th><th>Role</th><th></th><th></th></tr></thead><tbody>
       ${users.map((u) => `<tr>
         <td><div class="cell-agent">
           <img class="avatar" src="${esc(u.profile_picture || fallbackAvatar(u.name))}" onerror="this.src='${fallbackAvatar(u.name)}'" alt="" />
@@ -1131,17 +1156,54 @@ async function viewSettings() {
         <td>${esc(u.email)}</td>
         <td style="text-transform:capitalize">${esc(u.role)}</td>
         <td>${u.uid === ME.uid ? '<span class="em">you</span>' :
-          `<button class="btn btn-outline btn-sm" data-uid="${u.uid}" data-role="${u.role === "admin" ? "agent" : "admin"}">
+          `<button class="btn btn-outline btn-sm" data-role-uid="${u.uid}" data-role="${u.role === "admin" ? "agent" : "admin"}">
             Make ${u.role === "admin" ? "agent" : "admin"}</button>`}</td>
+        <td>${u.uid === ME.uid ? "" :
+          `<button class="btn btn-danger btn-sm" data-del-uid="${u.uid}" data-name="${esc(u.name)}">Delete</button>`}</td>
       </tr>`).join("")}
       </tbody></table>
     </div>`;
-  viewEl.querySelectorAll("button[data-uid]").forEach((b) =>
+  viewEl.querySelectorAll("button[data-role-uid]").forEach((b) =>
     b.addEventListener("click", guard(async () => {
-      await updateDoc(doc(C.users, b.dataset.uid), { role: b.dataset.role });
+      await updateDoc(doc(C.users, b.dataset.roleUid), { role: b.dataset.role });
       toast(`Role updated to ${b.dataset.role}`);
       viewSettings();
     })));
+  viewEl.querySelectorAll("button[data-del-uid]").forEach((b) =>
+    b.addEventListener("click", () => confirmDeleteUser(b.dataset.delUid, b.dataset.name)));
+}
+
+// Confirm + fully remove a user and their records.
+function confirmDeleteUser(uid, name) {
+  openModal(`
+    <h3 class="modal-title">Delete ${esc(name)}?</h3>
+    <p class="modal-hint">This permanently removes their profile and every record they have — time sessions, lunches, tasks, and assigned tasks. This can't be undone.</p>
+    <div class="modal-actions">
+      <button class="btn btn-outline btn-sm" id="m-cancel">Cancel</button>
+      <button class="btn btn-danger btn-sm" id="m-confirm">Delete user</button>
+    </div>
+  `);
+  document.getElementById("m-cancel").addEventListener("click", closeModal);
+  document.getElementById("m-confirm").addEventListener("click", guard(async (e) => {
+    const btn = e.currentTarget;
+    btn.textContent = "Deleting…";
+    await adminDeleteUser(uid);
+    closeModal();
+    toast(`${name} deleted`);
+    viewSettings();
+  }));
+}
+
+async function adminDeleteUser(uid) {
+  const purge = async (col, field) => {
+    const snap = await getDocs(query(col, where(field, "==", uid)));
+    await Promise.all(snap.docs.map((d) => deleteDoc(d.ref)));
+  };
+  await purge(C.sessions, "user_id");
+  await purge(C.lunches, "user_id");
+  await purge(C.activities, "user_id");
+  await purge(C.tasks, "assigned_to");
+  await deleteDoc(doc(C.users, uid));
 }
 
 // ============================================================

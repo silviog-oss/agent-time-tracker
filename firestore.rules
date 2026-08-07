@@ -52,14 +52,14 @@ service cloud.firestore {
     match /sessions/{id} {
       allow read:          if isAdmin() || ownsExisting();
       allow create:        if ownsIncoming();
-      allow update, delete:if ownsExisting();
+      allow update, delete:if isAdmin() || ownsExisting();
     }
 
     // ---- Lunch sessions ----
     match /lunches/{id} {
       allow read:          if isAdmin() || ownsExisting();
       allow create:        if ownsIncoming();
-      allow update, delete:if ownsExisting();
+      allow update, delete:if isAdmin() || ownsExisting();
     }
 
     // ---- Activities (tasks the agent runs during the day) ----

@@ -16,4 +16,4 @@ export const ALLOWED_EMAIL_DOMAIN = "";
 
 // These emails are ALWAYS admins — granted automatically on login.
 // Keep in sync with isSuperAdmin() in firestore.rules.
-export const SUPER_ADMIN_EMAILS = ["silvio.g@incfile.com", "marcos.c@incfile.com"];
+export const SUPER_ADMIN_EMAILS = ["silvio.g@incfile.com"];

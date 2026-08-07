@@ -375,6 +375,16 @@ tbody tr.clickable:hover { background: #FAFAFB; }
 .se-desc { flex: 1; font-weight: 500; }
 .se-time { border: 1px solid var(--border-strong); border-radius: var(--radius-sm); padding: 6px 8px; font-family: inherit; }
 
+/* admin task editor */
+.task-edit-list { display: flex; flex-direction: column; gap: 10px; }
+.task-edit-row { display: flex; align-items: flex-end; gap: 10px; flex-wrap: wrap; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
+.task-edit-row:last-child { border-bottom: none; }
+.te-desc { flex: 1 1 220px; min-width: 180px; height: 38px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); padding: 0 10px; font-family: inherit; font-size: 14px; color: var(--ink); }
+.te-field { display: flex; flex-direction: column; gap: 4px; font-size: 11px; color: var(--muted); font-weight: 600; }
+.te-field input { height: 38px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); padding: 0 8px; font-family: inherit; font-size: 14px; color: var(--ink); }
+.te-planned { width: 78px; }
+.te-desc:focus, .te-field input:focus { outline: none; border-color: var(--orange); box-shadow: 0 0 0 3px var(--orange-soft); }
+
 /* toast */
 .toast {
   position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%);
