@@ -62,11 +62,15 @@ service cloud.firestore {
       allow update, delete:if ownsExisting();
     }
 
-    // ---- Activities ----
+    // ---- Activities (tasks the agent runs during the day) ----
     match /activities/{id} {
-      allow read:          if isAdmin() || ownsExisting();
-      allow create:        if ownsIncoming();
-      allow update, delete:if ownsExisting();
+      allow read:   if isAdmin() || ownsExisting();
+      allow create: if ownsIncoming();
+      // Owner may update their task (end it, extend planned time) but may NOT
+      // change its start_time — only an admin can. Admin may change anything.
+      allow update: if isAdmin()
+        || (ownsExisting() && request.resource.data.start_time == resource.data.start_time);
+      allow delete: if isAdmin() || ownsExisting();
     }
 
     // ---- Tasks (admin assigns; assignee reports back) ----

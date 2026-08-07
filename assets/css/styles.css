@@ -134,7 +134,7 @@ a { color: var(--orange); text-decoration: none; }
 .view-title { font-size: 18px; font-weight: 700; letter-spacing: -.3px; flex: 1; }
 .topbar-clock { color: var(--muted); font-variant-numeric: tabular-nums; font-weight: 500; }
 .menu-toggle { display: none; color: var(--ink); }
-.view { padding: 26px; max-width: 1180px; width: 100%; }
+.view { padding: 26px; max-width: 1180px; width: 100%; flex: 1 0 auto; }
 
 .scrim { display: none; }
 
@@ -304,6 +304,76 @@ tbody tr.clickable:hover { background: #FAFAFB; }
 .task-mini .task-meta { margin-top: 2px; }
 .task-mini .task-actions { margin-top: 0; }
 .task-all-link { display: inline-block; margin-top: 12px; font-size: 13px; font-weight: 600; }
+
+/* ---------- Danger button ---------- */
+.btn-danger { background: #fff; border-color: #F3C0C0; color: var(--danger); }
+.btn-danger:hover { background: #FEF2F2; }
+
+/* ---------- App footer / version ---------- */
+.app-footer { margin-top: auto; padding: 14px 26px; color: var(--faint); font-size: 12px; border-top: 1px solid var(--border); }
+.app-version { font-variant-numeric: tabular-nums; }
+
+/* ---------- Admin preview banner ---------- */
+.preview-banner {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  background: var(--orange-soft); border: 1px solid #FBD9BC; color: #9a4a00;
+  border-radius: var(--radius-sm); padding: 10px 14px; margin-bottom: 16px; font-weight: 600; font-size: 13.5px;
+}
+
+/* ---------- Current task card ---------- */
+.current-task { margin-bottom: 18px; }
+.ct-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.ct-desc { font-size: 18px; font-weight: 700; }
+.ct-meta { display: flex; flex-wrap: wrap; gap: 8px; color: var(--muted); font-size: 13px; }
+.ct-meta b { color: var(--ink); }
+.ct-actions { margin-top: 14px; }
+
+/* assigned-by-admin strip */
+.assigned-list { display: flex; flex-direction: column; gap: 8px; }
+.assigned-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.assigned-title { font-weight: 600; }
+
+/* ---------- Modal ---------- */
+#modal-root { display: none; }
+#modal-root.open { display: block; }
+.modal-backdrop { position: fixed; inset: 0; background: rgba(15,18,22,.55); z-index: 300; }
+.modal-card {
+  position: fixed; z-index: 301; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  width: min(440px, calc(100vw - 32px)); background: var(--card); border-radius: 16px;
+  box-shadow: var(--shadow-lg); padding: 24px;
+}
+.modal-title { font-size: 19px; font-weight: 700; letter-spacing: -.3px; margin-bottom: 10px; }
+.modal-hint { color: var(--muted); font-size: 13px; margin-top: 10px; }
+.modal-textarea {
+  width: 100%; border: 1px solid var(--border-strong); border-radius: var(--radius-sm);
+  padding: 12px 14px; font-family: inherit; font-size: 15px; resize: vertical; min-height: 84px; color: var(--ink);
+}
+.modal-textarea:focus { outline: none; border-color: var(--orange); box-shadow: 0 0 0 3px var(--orange-soft); }
+.modal-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px; }
+.modal-check {
+  width: 54px; height: 54px; margin: 4px auto 10px; border-radius: 50%;
+  background: #F0FBF3; color: var(--green); font-size: 28px; font-weight: 800;
+  display: flex; align-items: center; justify-content: center;
+}
+.lunch-timer { text-align: center; font-size: 40px; font-weight: 800; letter-spacing: -1px; margin: 10px 0; }
+
+/* duration picker */
+.duration-row { display: flex; align-items: center; gap: 10px; }
+.dur-step {
+  width: 42px; height: 40px; border: 1px solid var(--border-strong); background: var(--card);
+  border-radius: var(--radius-sm); font-weight: 700; font-size: 14px; color: var(--ink);
+}
+.dur-step:hover { background: #FAFAFB; }
+.dur-input { width: 84px; height: 40px; text-align: center; font-size: 16px; font-weight: 700;
+  border: 1px solid var(--border-strong); border-radius: var(--radius-sm); color: var(--ink); }
+.dur-input:focus { outline: none; border-color: var(--orange); box-shadow: 0 0 0 3px var(--orange-soft); }
+.dur-unit { color: var(--muted); font-weight: 600; }
+
+/* admin start-time editor */
+.start-edit-list { display: flex; flex-direction: column; gap: 8px; }
+.start-edit-row { display: flex; align-items: center; gap: 10px; }
+.se-desc { flex: 1; font-weight: 500; }
+.se-time { border: 1px solid var(--border-strong); border-radius: var(--radius-sm); padding: 6px 8px; font-family: inherit; }
 
 /* toast */
 .toast {

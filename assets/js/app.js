@@ -12,7 +12,7 @@ import {
   query, where, serverTimestamp, Timestamp, onSnapshot
 } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
-import { firebaseConfig, ALLOWED_EMAIL_DOMAIN, SUPER_ADMIN_EMAILS } from "./config.js?v=2";
+import { firebaseConfig, ALLOWED_EMAIL_DOMAIN, SUPER_ADMIN_EMAILS } from "./config.js?v=3";
 
 const isSuperAdminEmail = (email) =>
   (SUPER_ADMIN_EMAILS || []).map((e) => e.toLowerCase()).includes((email || "").toLowerCase());
@@ -31,9 +31,13 @@ const C = {
   tasks:      collection(db, "tasks"),
 };
 
+// ---------- App meta ----------
+const APP_VERSION = "v2.1.0";
+
 // ---------- Global state ----------
 let ME = null;              // { uid, name, email, photo, role }
 let ROUTE = "dashboard";    // active view id
+let PREVIEW_AGENT = false;  // admin previewing the agent dashboard
 let tickHandler = null;     // function called every second by the global interval
 let unsubscribers = [];     // onSnapshot cleanups for the current view
 
@@ -60,6 +64,11 @@ function dateKeyFromMs(m) { return todayKey(new Date(m)); }
 function fmtClock(m) {
   if (!m) return "—";
   return new Date(m).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+}
+// 24h HH:MM for <input type="time">
+function hhmm(m) {
+  const d = new Date(m);
+  return String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
 }
 function fmtDate(key) {
   const [y, mo, d] = key.split("-").map(Number);
@@ -116,6 +125,7 @@ onAuthStateChanged(auth, async (user) => {
     splash.classList.add("hidden");
     appEl.classList.add("hidden");
     loginScr.classList.remove("hidden");
+    renderVersionFooters();
     return;
   }
 
@@ -131,7 +141,8 @@ onAuthStateChanged(auth, async (user) => {
   splash.classList.add("hidden");
   appEl.classList.remove("hidden");
   renderShell();
-  go(ME.role === "admin" ? "dashboard" : "dashboard");
+  renderVersionFooters();
+  go("dashboard");
 });
 
 // Create or read the user's profile doc.
@@ -175,10 +186,6 @@ async function bootstrapUser(user) {
 const NAV = {
   agent: [
     ["dashboard", "Dashboard", icon("grid")],
-    ["my-tasks", "My Tasks", icon("check")],
-    ["my-activity", "My Activity", icon("list")],
-    ["my-time", "My Time", icon("clock")],
-    ["profile", "Profile", icon("user")],
   ],
   admin: [
     ["dashboard", "Dashboard", icon("grid")],
@@ -352,21 +359,33 @@ async function endLunchDoc(l) {
   await updateDoc(doc(C.lunches, l.id), { end_time: now, duration: dur });
 }
 
-async function startActivity(text) {
+async function startActivity(text, minutes = 15) {
   const desc = (text || "").trim();
   if (!desc) { toast("Type what you're working on first.", true); return; }
   const day = todayKey();
   const data = await loadDay(ME.uid, day);
   const st = deriveStatus(data);
-  if (!st.openSession) { toast("Clock in before logging an activity.", true); return refreshAgent(); }
+  if (!st.openSession) { toast("Start your day before adding a task.", true); return refreshAgent(); }
   if (st.openLunch) { toast("You're on lunch — end lunch first.", true); return refreshAgent(); }
-  if (st.openActivity) { toast("End the current activity first.", true); return refreshAgent(); }
+  if (st.openActivity) { toast("End the current task first.", true); return refreshAgent(); }
   await addDoc(C.activities, {
     user_id: ME.uid, user_name: ME.name, description: desc,
     start_time: Timestamp.now(), end_time: null, duration: 0,
+    planned_minutes: Math.max(5, Math.round(minutes) || 15),
     date: day, session_id: st.openSession.id,
   });
-  toast("Activity started");
+  toast("Task started");
+  refreshAgent();
+}
+
+// Agent may extend the planned time of the OPEN task (start_time stays fixed).
+async function extendActivity(id, addMin = 15) {
+  const data = await loadDay(ME.uid, todayKey());
+  const a = data.activities.find((x) => x.id === id);
+  if (!a || a.end_time) return;
+  const next = (a.planned_minutes || 15) + addMin;
+  await updateDoc(doc(C.activities, id), { planned_minutes: next });
+  toast(`Extended to ${next} min`);
   refreshAgent();
 }
 
@@ -374,15 +393,23 @@ async function endActivity() {
   const day = todayKey();
   const data = await loadDay(ME.uid, day);
   const st = deriveStatus(data);
-  if (!st.openActivity) { toast("No active activity.", true); return refreshAgent(); }
+  if (!st.openActivity) { toast("No task running.", true); return refreshAgent(); }
   await endActivityDoc(st.openActivity);
-  toast("Activity ended");
+  toast("Task ended");
   refreshAgent();
 }
 async function endActivityDoc(a) {
   const now = Timestamp.now();
   const dur = Math.round((now.toMillis() - ms(a.start_time)) / 1000);
   await updateDoc(doc(C.activities, a.id), { end_time: now, duration: dur });
+}
+
+// Admin-only: change a task's start time (agents cannot — enforced in rules).
+async function adminSetActivityStart(id, hhmm, dayKey) {
+  const [h, m] = hhmm.split(":").map(Number);
+  const [y, mo, d] = dayKey.split("-").map(Number);
+  const when = new Date(y, mo - 1, d, h, m, 0, 0);
+  await updateDoc(doc(C.activities, id), { start_time: Timestamp.fromDate(when) });
 }
 
 // ============================================================
@@ -397,7 +424,7 @@ function render() {
   clearView();
   titleEl.textContent = TITLES[ROUTE] || "Dashboard";
   const admin = ME.role === "admin";
-  if (ROUTE === "dashboard") return admin ? viewAdminDashboard() : viewAgentDashboard();
+  if (ROUTE === "dashboard") return (admin && !PREVIEW_AGENT) ? viewAdminDashboard() : viewAgentDashboard();
   if (ROUTE === "my-tasks") return viewMyTasks();
   if (ROUTE === "my-activity") return viewMyActivity();
   if (ROUTE === "my-time") return viewMyTime();
@@ -412,91 +439,93 @@ function render() {
 // ============================================================
 //  AGENT — Dashboard
 // ============================================================
-async function refreshAgent() { if (ROUTE === "dashboard" && ME.role === "agent") viewAgentDashboard(); }
+async function refreshAgent() { if (ROUTE === "dashboard" && (ME.role === "agent" || PREVIEW_AGENT)) viewAgentDashboard(); }
 
 async function viewAgentDashboard() {
   viewEl.innerHTML = skeleton();
   const day = todayKey();
   const data = await loadDay(ME.uid, day);
   const st = deriveStatus(data);
+  const shiftEnded = data.sessions.length > 0 && !st.openSession; // a day was started and then ended
 
-  const statusText = { working: "Working", lunch: "On lunch", out: "Clocked out" }[st.status];
+  // ----- top banner (admin preview) -----
+  const previewBanner = PREVIEW_AGENT ? `
+    <div class="preview-banner">
+      <span>Previewing the agent view</span>
+      <button class="btn btn-outline btn-sm" id="exit-preview">Back to admin</button>
+    </div>` : "";
 
-  // main actions
-  let actions = "";
+  // ----- big status + primary buttons -----
+  let statusLine, buttons;
   if (st.status === "out") {
-    actions = `<button class="btn btn-primary btn-lg" id="btn-clockin">Clock in</button>`;
-  } else if (st.status === "working") {
-    actions = `
-      <button class="btn btn-dark btn-lg" id="btn-clockout">Clock out</button>
-      <button class="btn btn-outline btn-lg" id="btn-lunch">Start lunch</button>`;
+    statusLine = shiftEnded
+      ? `<span class="dot out"></span>Shift ended`
+      : `<span class="dot out"></span>Not started`;
+    buttons = `<button class="btn btn-primary btn-lg" id="btn-startday">Start day</button>`;
+  } else if (st.status === "lunch") {
+    statusLine = `<span class="dot lunch"></span>On lunch`;
+    buttons = `<button class="btn btn-primary btn-lg" id="btn-endlunch">End lunch</button>`;
   } else {
-    actions = `<button class="btn btn-primary btn-lg" id="btn-endlunch">End lunch</button>`;
+    // working
+    statusLine = `<span class="dot working"></span>Working`;
+    buttons = st.openActivity
+      ? `<button class="btn btn-dark btn-lg" id="btn-endtask">End task</button>
+         <button class="btn btn-outline btn-lg" id="btn-lunch">Lunch</button>
+         <button class="btn btn-danger btn-lg" id="btn-endshift">End shift</button>`
+      : `<button class="btn btn-primary btn-lg" id="btn-addtask">Add task</button>
+         <button class="btn btn-outline btn-lg" id="btn-lunch">Lunch</button>
+         <button class="btn btn-danger btn-lg" id="btn-endshift">End shift</button>`;
   }
 
-  // live stat blocks
-  const stats = st.status === "out" ? "" : `
-    <div class="stat-row">
-      <div class="stat"><span class="stat-label">Clock-in time</span><span class="stat-value">${fmtClock(ms(st.openSession.clock_in))}</span></div>
-      ${st.status === "lunch"
-        ? `<div class="stat"><span class="stat-label">Lunch started</span><span class="stat-value">${fmtClock(ms(st.openLunch.start_time))}</span></div>
-           <div class="stat"><span class="stat-label">On lunch for</span><span class="stat-value num" id="t-lunch">—</span></div>`
-        : `<div class="stat"><span class="stat-label">Worked this session</span><span class="stat-value num" id="t-session">—</span></div>
-           <div class="stat"><span class="stat-label">Current activity</span><span class="stat-value" style="font-size:15px">${st.openActivity ? esc(st.openActivity.description) : "—"}</span></div>`}
-      <div class="stat"><span class="stat-label">Today's total worked</span><span class="stat-value num" id="t-today">—</span></div>
-    </div>`;
-
-  // activity box (only when working)
-  let activityCard = "";
-  if (st.status === "working") {
-    if (st.openActivity) {
-      activityCard = `
-        <div class="card card-pad activity-box">
-          <div class="section-title">Activity notes</div>
-          <div class="activity-current">
-            <span class="pulse"></span>
-            <span class="txt">${esc(st.openActivity.description)}</span>
-            <span class="since" id="t-activity">—</span>
-          </div>
-          <button class="btn btn-dark btn-sm" id="btn-endact">End activity</button>
-        </div>`;
-    } else {
-      activityCard = `
-        <div class="card card-pad activity-box">
-          <div class="section-title">What are you working on?</div>
-          <textarea id="act-input" placeholder="e.g. Helping customer with account verification"></textarea>
-          <div class="mt-18"><button class="btn btn-primary btn-sm" id="btn-startact">Start activity</button></div>
-        </div>`;
-    }
+  // ----- current task card (when a task is running) -----
+  let currentTask = "";
+  if (st.status === "working" && st.openActivity) {
+    const a = st.openActivity;
+    currentTask = `
+      <div class="card card-pad current-task">
+        <div class="section-title">Current task</div>
+        <div class="ct-row">
+          <span class="pulse"></span>
+          <span class="ct-desc">${esc(a.description)}</span>
+        </div>
+        <div class="ct-meta">
+          <span>Started ${fmtClock(ms(a.start_time))}</span>
+          <span>·</span>
+          <span>Planned ${a.planned_minutes || 15} min</span>
+          <span>·</span>
+          <span>Elapsed <b class="num" id="t-task">—</b></span>
+        </div>
+        <div class="ct-actions">
+          <button class="btn btn-outline btn-sm" id="btn-extend">Extend +15 min</button>
+        </div>
+      </div>`;
   }
 
   const timeline = buildTimeline(data);
 
-  // Open tasks assigned by admin
-  const openTasks = (await getDocsArr(query(C.tasks, where("assigned_to", "==", ME.uid))))
-    .filter((t) => t.status !== "done")
-    .sort((a, b) => (ms(b.created_at) || 0) - (ms(a.created_at) || 0));
-  const tasksCard = openTasks.length ? `
-    <div class="card card-pad mt-18">
-      <div class="section-title">Assigned tasks (${openTasks.length})</div>
-      <div class="task-mini-list">
-        ${openTasks.map((t) => `
-          <div class="task-mini" data-id="${t.id}">
-            <div class="task-mini-main">
-              <div class="task-title">${esc(t.title)}</div>
-              <div class="task-meta">${t.due_date ? `Due ${esc(t.due_date)} · ` : ""}from ${esc(t.assigned_by_name || "admin")}</div>
-            </div>
-            ${taskBadge(t.status)}
-            <div class="task-actions">
-              ${t.status === "open" ? `<button class="btn btn-outline btn-sm" data-act="start">Start</button>` : ""}
-              <button class="btn btn-primary btn-sm" data-act="done">Done</button>
-            </div>
-          </div>`).join("")}
-      </div>
-      <a href="#" id="tasks-all" class="task-all-link">Open My Tasks to add reports →</a>
-    </div>` : "";
+  // Tasks the admin assigned to this agent (not yet done)
+  let assignedStrip = "";
+  if (st.status === "working" && !st.openActivity) {
+    const assigned = (await getDocsArr(query(C.tasks, where("assigned_to", "==", ME.uid))))
+      .filter((t) => t.status !== "done")
+      .sort((a, b) => (ms(b.created_at) || 0) - (ms(a.created_at) || 0));
+    if (assigned.length) {
+      assignedStrip = `
+        <div class="card card-pad mt-18">
+          <div class="section-title">Assigned by your admin (${assigned.length})</div>
+          <div class="assigned-list">
+            ${assigned.map((t) => `
+              <div class="assigned-row">
+                <span class="assigned-title">${esc(t.title)}${t.details ? ` — <span class="em">${esc(t.details)}</span>` : ""}</span>
+                <button class="btn btn-outline btn-sm" data-assigned='${esc(JSON.stringify({ id: t.id, title: t.title }))}'>Start this</button>
+              </div>`).join("")}
+          </div>
+        </div>`;
+    }
+  }
 
   viewEl.innerHTML = `
+    ${previewBanner}
     <p class="greeting">${greetWord()}, ${esc(ME.name.split(" ")[0])}</p>
     <p class="greeting-sub">${new Date().toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" })}</p>
 
@@ -504,58 +533,134 @@ async function viewAgentDashboard() {
       <div class="status-head">
         <div>
           <div class="status-label">Status</div>
-          <div class="status-value"><span class="dot ${st.status}"></span>${statusText}</div>
-          ${st.status !== "out" ? `<div class="status-timer" id="t-main">—</div>` : `<div class="status-timer">Ready when you are.</div>`}
+          <div class="status-value">${statusLine}</div>
+          ${st.openSession ? `<div class="status-timer" id="t-main">—</div>`
+            : shiftEnded ? `<div class="status-timer">See you next time.</div>`
+            : `<div class="status-timer">Press Start day to begin.</div>`}
         </div>
-        <div class="status-actions">${actions}</div>
+        <div class="status-actions">${buttons}</div>
       </div>
-      ${stats}
     </div>
 
-    ${activityCard}
+    ${currentTask}
 
-    ${tasksCard}
+    ${assignedStrip}
 
     <div class="card card-pad mt-18">
       <div class="section-title">Today's timeline</div>
       ${timeline}
     </div>`;
 
-  // wire buttons
-  $("btn-clockin") && $("btn-clockin").addEventListener("click", guard(clockIn));
-  $("btn-clockout") && $("btn-clockout").addEventListener("click", guard(clockOut));
-  $("btn-lunch") && $("btn-lunch").addEventListener("click", guard(startLunch));
-  $("btn-endlunch") && $("btn-endlunch").addEventListener("click", guard(endLunch));
-  $("btn-startact") && $("btn-startact").addEventListener("click", guard(() => startActivity($("act-input").value)));
-  $("btn-endact") && $("btn-endact").addEventListener("click", guard(endActivity));
+  // ----- wire buttons -----
+  $("exit-preview") && $("exit-preview").addEventListener("click", () => { PREVIEW_AGENT = false; render(); });
+  $("btn-startday") && $("btn-startday").addEventListener("click", guard(async () => { await clockIn(); }));
+  $("btn-addtask") && $("btn-addtask").addEventListener("click", () => openAddTaskModal());
+  $("btn-endtask") && $("btn-endtask").addEventListener("click", guard(endActivity));
+  $("btn-extend") && $("btn-extend").addEventListener("click", guard(() => extendActivity(st.openActivity.id, 15)));
+  $("btn-lunch") && $("btn-lunch").addEventListener("click", guard(async () => { await startLunch(); openLunchModal(); }));
+  $("btn-endlunch") && $("btn-endlunch").addEventListener("click", guard(async () => { await endLunch(); closeModal(); }));
+  $("btn-endshift") && $("btn-endshift").addEventListener("click", () => confirmEndShift());
 
-  // dashboard task buttons
-  viewEl.querySelectorAll(".task-mini").forEach((el) => {
-    const id = el.dataset.id;
-    const s = el.querySelector('[data-act="start"]');
-    const d = el.querySelector('[data-act="done"]');
-    s && s.addEventListener("click", guard(async () => { await taskSetStatus(id, "in_progress"); toast("Task started"); refreshAgent(); }));
-    d && d.addEventListener("click", guard(async () => { await taskSetStatus(id, "done"); toast("Task done"); refreshAgent(); }));
-  });
-  $("tasks-all") && $("tasks-all").addEventListener("click", (e) => { e.preventDefault(); go("my-tasks"); });
+  // assigned-task "Start this" → open Add task modal prefilled, mark task in progress
+  viewEl.querySelectorAll("[data-assigned]").forEach((b) =>
+    b.addEventListener("click", () => {
+      const info = JSON.parse(b.dataset.assigned);
+      openAddTaskModal(info.title, info.id);
+    }));
 
-  // live tick
+  // if we reload while on lunch, pop the lunch modal automatically
+  if (st.status === "lunch") openLunchModal();
+
+  // ----- live tick -----
   tickHandler = () => {
     const now = Date.now();
-    if (st.status === "working") {
+    if (st.openSession) {
       const sSec = st.workedSecFor(st.openSession);
-      setText("t-session", fmtClockDur(sSec));
-      setText("t-main", "Working for " + fmtClockDur(sSec) + " this session");
-      if (st.openActivity) setText("t-activity", fmtClockDur((now - ms(st.openActivity.start_time)) / 1000));
-    } else if (st.status === "lunch") {
-      const lSec = (now - ms(st.openLunch.start_time)) / 1000;
-      setText("t-lunch", fmtClockDur(lSec));
-      setText("t-main", "On lunch for " + fmtClockDur(lSec));
+      if (st.status === "working") setText("t-main", "Working · " + fmtClockDur(sSec) + " today");
+      if (st.openActivity) setText("t-task", fmtClockDur((now - ms(st.openActivity.start_time)) / 1000));
     }
-    // today's total recomputes from stored timestamps
-    setText("t-today", fmtHM(deriveStatus(data).totalWorkedSec));
+    if (st.status === "lunch") {
+      const lSec = (now - ms(st.openLunch.start_time)) / 1000;
+      setText("t-main", "On lunch · " + fmtClockDur(lSec));
+      setText("modal-lunch-timer", fmtClockDur(lSec));
+    }
   };
   tickHandler();
+}
+
+// ---- Add task modal (description + duration, default 15) ----
+function openAddTaskModal(prefill = "", assignedTaskId = null) {
+  openModal(`
+    <h3 class="modal-title">What are you doing?</h3>
+    <textarea id="m-desc" class="modal-textarea" placeholder="e.g. Answering customer chats">${esc(prefill)}</textarea>
+    <label class="field-label" style="margin-top:14px">How long do you expect this to take?</label>
+    <div class="duration-row">
+      <button class="dur-step" data-d="-5" type="button">–5</button>
+      <input id="m-mins" class="dur-input num" type="number" min="5" step="5" value="15" />
+      <span class="dur-unit">min</span>
+      <button class="dur-step" data-d="5" type="button">+5</button>
+    </div>
+    <p class="modal-hint">Default is 15 minutes. You can extend it later; only an admin can change the start time.</p>
+    <div class="modal-actions">
+      <button class="btn btn-outline btn-sm" id="m-cancel">Cancel</button>
+      <button class="btn btn-primary btn-sm" id="m-start">Start task</button>
+    </div>
+  `);
+  const mins = document.getElementById("m-mins");
+  document.querySelectorAll(".dur-step").forEach((b) =>
+    b.addEventListener("click", () => {
+      mins.value = Math.max(5, (parseInt(mins.value, 10) || 15) + parseInt(b.dataset.d, 10));
+    }));
+  document.getElementById("m-cancel").addEventListener("click", closeModal);
+  document.getElementById("m-start").addEventListener("click", guard(async () => {
+    const desc = document.getElementById("m-desc").value.trim();
+    if (!desc) { toast("Type what you're doing first.", true); return; }
+    const minutes = Math.max(5, parseInt(mins.value, 10) || 15);
+    closeModal();
+    if (assignedTaskId) { try { await taskSetStatus(assignedTaskId, "in_progress"); } catch (_) {} }
+    await startActivity(desc, minutes);
+  }));
+  setTimeout(() => document.getElementById("m-desc")?.focus(), 40);
+}
+
+// ---- Lunch modal (running timer + end) ----
+function openLunchModal() {
+  openModal(`
+    <h3 class="modal-title">On lunch</h3>
+    <div class="lunch-timer num" id="modal-lunch-timer">0:00:00</div>
+    <p class="modal-hint">Your work timer is paused. Enjoy your break.</p>
+    <div class="modal-actions">
+      <button class="btn btn-primary btn-sm" id="m-endlunch">End lunch</button>
+    </div>
+  `, { dismissable: false });
+  document.getElementById("m-endlunch").addEventListener("click", guard(async () => {
+    await endLunch(); closeModal();
+  }));
+}
+
+// ---- End shift: confirm, then close day; agent sees only a confirmation ----
+function confirmEndShift() {
+  openModal(`
+    <h3 class="modal-title">End your shift?</h3>
+    <p class="modal-hint">This closes your day. Any running task and lunch will be ended, and a timestamped summary is sent to your admin.</p>
+    <div class="modal-actions">
+      <button class="btn btn-outline btn-sm" id="m-cancel">Not yet</button>
+      <button class="btn btn-danger btn-sm" id="m-confirm">End shift</button>
+    </div>
+  `);
+  document.getElementById("m-cancel").addEventListener("click", closeModal);
+  document.getElementById("m-confirm").addEventListener("click", guard(async () => {
+    await clockOut();
+    openModal(`
+      <div class="modal-check">✓</div>
+      <h3 class="modal-title" style="text-align:center">Shift ended</h3>
+      <p class="modal-hint" style="text-align:center">Nice work today. Your summary has been sent to your admin.</p>
+      <div class="modal-actions" style="justify-content:center">
+        <button class="btn btn-primary btn-sm" id="m-ok">Done</button>
+      </div>
+    `);
+    document.getElementById("m-ok").addEventListener("click", closeModal);
+  }));
 }
 
 function setText(id, v) { const el = $(id); if (el) el.textContent = v; }
@@ -590,10 +695,11 @@ function buildTimeline(data) {
   });
   data.activities.forEach((a) => {
     const end = a.end_time ? ms(a.end_time) : Date.now();
+    const planned = a.planned_minutes ? ` · planned ${a.planned_minutes}m` : "";
     events.push({
       t: ms(a.start_time), node: "orange",
       time: `${fmtClock(ms(a.start_time))} – ${a.end_time ? fmtClock(ms(a.end_time)) : "now"}`,
-      desc: a.description, dur: fmtHM((end - ms(a.start_time)) / 1000),
+      desc: a.description, dur: fmtHM((end - ms(a.start_time)) / 1000) + planned,
     });
   });
   events.sort((x, y) => x.t - y.t);
@@ -728,6 +834,10 @@ async function viewAdminDashboard() {
     rows.forEach((r) => counts[r.st.status]++);
 
     viewEl.innerHTML = `
+      <div class="page-head">
+        <div class="section-title" style="margin:0">Live floor</div>
+        <button class="btn btn-outline btn-sm" id="view-as-agent">View as agent</button>
+      </div>
       <div class="tiles">
         <div class="tile"><div class="t-label">🟢 Working</div><div class="t-value">${counts.working}</div></div>
         <div class="tile"><div class="t-label">🟠 On lunch</div><div class="t-value">${counts.lunch}</div></div>
@@ -752,7 +862,9 @@ async function viewAdminDashboard() {
           </tr>`).join("")}
         </tbody></table>
       </div>
-      <p class="greeting-sub mt-18" style="margin:14px 0 0;font-size:12.5px">Live — updates automatically. Click an agent for their full timeline.</p>`;
+      <p class="greeting-sub mt-18" style="margin:14px 0 0;font-size:12.5px">Live — updates automatically. Click an agent for their full day summary.</p>`;
+
+    $("view-as-agent").addEventListener("click", () => { PREVIEW_AGENT = true; go("dashboard"); });
 
     viewEl.querySelectorAll("tr.clickable").forEach((tr) =>
       tr.addEventListener("click", () => openAgentDetail(tr.dataset.uid, usersById[tr.dataset.uid])));
@@ -821,6 +933,20 @@ async function openAgentDetail(uid, u) {
   const draw = async (dayKey) => {
     const data = await loadDay(uid, dayKey);
     const st = deriveStatus(data);
+    const acts = [...data.activities].sort((a, b) => ms(a.start_time) - ms(b.start_time));
+    const startEditor = acts.length ? `
+      <div class="card card-pad mt-18">
+        <div class="section-title">Adjust task start times (admin only)</div>
+        <div class="start-edit-list">
+          ${acts.map((a) => `
+            <div class="start-edit-row" data-id="${a.id}">
+              <span class="se-desc">${esc(a.description)}</span>
+              <input type="time" class="se-time" value="${hhmm(ms(a.start_time))}" />
+              <button class="btn btn-outline btn-sm se-save">Save</button>
+            </div>`).join("")}
+        </div>
+        <p class="modal-hint">Agents can't change these — only you can.</p>
+      </div>` : "";
     viewEl.innerHTML = `
       <div class="page-head">
         <div class="cell-agent">
@@ -833,12 +959,22 @@ async function openAgentDetail(uid, u) {
         <div class="tile"><div class="t-label">Status</div><div class="t-value" style="font-size:16px;margin-top:8px">${badge(st.status)}</div></div>
         <div class="tile"><div class="t-label">Worked</div><div class="t-value">${fmtHM(st.totalWorkedSec)}</div></div>
         <div class="tile"><div class="t-label">Lunch</div><div class="t-value">${fmtHM(st.totalLunchSec)}</div></div>
-        <div class="tile"><div class="t-label">Activities</div><div class="t-value">${data.activities.length}</div></div>
+        <div class="tile"><div class="t-label">Tasks</div><div class="t-value">${data.activities.length}</div></div>
       </div>
-      <div class="card card-pad"><div class="section-title">Timeline — ${fmtDate(dayKey)}</div>${buildTimeline(data)}</div>
+      <div class="card card-pad"><div class="section-title">Day summary — ${fmtDate(dayKey)}</div>${buildTimeline(data)}</div>
+      ${startEditor}
       <button class="btn btn-outline btn-sm mt-18" style="margin-top:18px" id="back-btn">← Back</button>`;
     $("detail-date").addEventListener("change", (e) => draw(e.target.value));
     $("back-btn").addEventListener("click", () => go(ME.role === "admin" ? "agents" : "dashboard"));
+    viewEl.querySelectorAll(".start-edit-row").forEach((row) => {
+      row.querySelector(".se-save").addEventListener("click", guard(async () => {
+        const val = row.querySelector(".se-time").value;
+        if (!val) return;
+        await adminSetActivityStart(row.dataset.id, val, dayKey);
+        toast("Start time updated");
+        draw(dayKey);
+      }));
+    });
   };
   await draw(day);
 }
@@ -1171,6 +1307,39 @@ async function viewAdminTasks() {
   $("tf-agent").addEventListener("change", drawList);
   $("tf-status").addEventListener("change", drawList);
   await drawList();
+}
+
+// ============================================================
+//  Modal
+// ============================================================
+let modalRoot = null;
+function ensureModalRoot() {
+  if (!modalRoot) {
+    modalRoot = document.createElement("div");
+    modalRoot.id = "modal-root";
+    document.body.appendChild(modalRoot);
+  }
+  return modalRoot;
+}
+function openModal(innerHTML, { dismissable = true } = {}) {
+  const root = ensureModalRoot();
+  root.innerHTML = `
+    <div class="modal-backdrop"></div>
+    <div class="modal-card" role="dialog" aria-modal="true">${innerHTML}</div>`;
+  root.classList.add("open");
+  if (dismissable) {
+    root.querySelector(".modal-backdrop").addEventListener("click", closeModal);
+  }
+}
+function closeModal() {
+  if (modalRoot) { modalRoot.classList.remove("open"); modalRoot.innerHTML = ""; }
+}
+
+// ============================================================
+//  Version footer
+// ============================================================
+function renderVersionFooters() {
+  document.querySelectorAll(".app-version").forEach((el) => { el.textContent = APP_VERSION; });
 }
 
 // ============================================================
