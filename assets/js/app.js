@@ -12,7 +12,7 @@ import {
   query, where, serverTimestamp, Timestamp, onSnapshot
 } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
-import { firebaseConfig, ALLOWED_EMAIL_DOMAIN, SUPER_ADMIN_EMAILS } from "./config.js?v=9";
+import { firebaseConfig, ALLOWED_EMAIL_DOMAIN, SUPER_ADMIN_EMAILS } from "./config.js?v=10";
 
 const isSuperAdminEmail = (email) =>
   (SUPER_ADMIN_EMAILS || []).map((e) => e.toLowerCase()).includes((email || "").toLowerCase());
@@ -33,7 +33,7 @@ const C = {
 };
 
 // ---------- App meta ----------
-const APP_VERSION = "v2.3.1";
+const APP_VERSION = "v2.4.0";
 
 // ---------- Global state ----------
 let ME = null;              // { uid, name, email, photo, role }
@@ -187,6 +187,7 @@ async function bootstrapUser(user) {
 const NAV = {
   agent: [
     ["dashboard", "Dashboard", icon("grid")],
+    ["map", "Map", icon("map")],
   ],
   admin: [
     ["dashboard", "Dashboard", icon("grid")],
@@ -194,6 +195,7 @@ const NAV = {
     ["tasks", "Tasks", icon("check")],
     ["activity", "Activity", icon("list")],
     ["reports", "Time Reports", icon("chart")],
+    ["map", "Map", icon("map")],
     ["settings", "Settings", icon("cog")],
   ],
 };
@@ -407,29 +409,33 @@ async function endActivityDoc(a) {
 
 // ============================================================
 //  Instances (management-only notes on an agent's day:
-//  breaks, incidents, late arrivals, etc. — never shown to agents)
+//  a time range + reason — never shown to agents)
 // ============================================================
-const INSTANCE_TYPES = ["Break", "Meeting", "Coaching", "Technical issue", "Late arrival", "Left early", "Absence", "Other"];
-
 async function loadInstances(uid, dayKey) {
   try {
     return (await getDocsArr(query(C.instances, where("user_id", "==", uid), where("date", "==", dayKey))))
-      .sort((a, b) => (ms(a.at) || 0) - (ms(b.at) || 0));
+      .sort((a, b) => (ms(a.from) || ms(a.at) || 0) - (ms(b.from) || ms(b.at) || 0));
   } catch (e) {
-    // e.g. rules not published yet — don't let it block the whole page
     console.warn("Could not load instances:", e.message);
     return [];
   }
 }
-async function addInstance(uid, userName, { type, note, hhmm, dayKey }) {
-  const [h, m] = (hhmm || "00:00").split(":").map(Number);
-  const [y, mo, d] = dayKey.split("-").map(Number);
-  const at = new Date(y, mo - 1, d, h, m, 0, 0);
+async function addInstance(uid, userName, { fromHHMM, toHHMM, reason, dayKey }) {
+  const mk = (hhmm) => {
+    const [h, m] = hhmm.split(":").map(Number);
+    const [y, mo, d] = dayKey.split("-").map(Number);
+    return new Date(y, mo - 1, d, h, m, 0, 0);
+  };
+  const from = mk(fromHHMM);
+  const to = mk(toHHMM);
   await addDoc(C.instances, {
     user_id: uid, user_name: userName,
     created_by: ME.uid, created_by_name: ME.name,
-    type: type || "Other", note: (note || "").trim(),
-    at: Timestamp.fromDate(at), date: dayKey, created_at: serverTimestamp(),
+    reason: (reason || "").trim(),
+    from: Timestamp.fromDate(from),
+    to: Timestamp.fromDate(to),
+    at: Timestamp.fromDate(from), // keep for older sorts
+    date: dayKey, created_at: serverTimestamp(),
   });
 }
 async function deleteInstance(id) { await deleteDoc(doc(C.instances, id)); }
@@ -462,12 +468,13 @@ async function adminSaveActivity(id, { desc, startHHMM, endHHMM, planned }, dayK
 const TITLES = {
   dashboard: "Dashboard", "my-tasks": "My Tasks", "my-activity": "My Activity",
   "my-time": "My Time", profile: "Profile", agents: "Agents", tasks: "Tasks",
-  activity: "Activity", reports: "Time Reports", settings: "Settings",
+  activity: "Activity", reports: "Time Reports", map: "Office Map", settings: "Settings",
 };
 function render() {
   clearView();
   titleEl.textContent = TITLES[ROUTE] || "Dashboard";
   const admin = ME.role === "admin";
+  if (ROUTE === "map") return viewMap();
   if (ROUTE === "dashboard") return (admin && !PREVIEW_AGENT) ? viewAdminDashboard() : viewAgentDashboard();
   if (ROUTE === "my-tasks") return viewMyTasks();
   if (ROUTE === "my-activity") return viewMyActivity();
@@ -478,6 +485,11 @@ function render() {
   if (ROUTE === "activity") return viewAdminActivity();
   if (ROUTE === "reports") return viewReports();
   if (ROUTE === "settings") return viewSettings();
+}
+
+// Office map — self-contained page embedded in an iframe (visible to everyone)
+function viewMap() {
+  viewEl.innerHTML = `<div class="map-wrap"><iframe class="map-frame" src="assets/office-map.html?v=9" title="Office Map"></iframe></div>`;
 }
 
 // ============================================================
@@ -1001,24 +1013,21 @@ async function openAgentDetail(uid, u) {
     const instancesPanel = `
       <div class="card card-pad mt-18">
         <div class="section-title">Instances — management only 🔒</div>
-        <p class="modal-hint" style="margin-top:0">Log breaks, incidents, late arrivals and notes. These are never shown to the agent.</p>
+        <p class="modal-hint" style="margin-top:0">Log a time range and a reason (breaks, incidents, etc.). Never shown to the agent.</p>
         <div class="inst-list">
           ${instances.length ? instances.map((i) => `
             <div class="inst-row" data-id="${i.id}">
-              <span class="inst-time num">${fmtClock(ms(i.at))}</span>
-              <span class="badge out">${esc(i.type)}</span>
-              <span class="inst-note">${i.note ? esc(i.note) : ""}</span>
+              <span class="inst-time num">${fmtClock(ms(i.from || i.at))}–${i.to ? fmtClock(ms(i.to)) : "—"}</span>
+              <span class="inst-note">${esc(i.reason || i.note || i.type || "")}</span>
               <span class="inst-by">by ${esc(i.created_by_name || "")}</span>
               <button class="btn btn-danger btn-sm inst-del">Delete</button>
             </div>`).join("") : `<div class="em" style="padding:6px 0">No instances logged for this day.</div>`}
         </div>
         <div class="inst-form">
-          <label class="te-field"><span>Type</span>
-            <select id="inst-type">${INSTANCE_TYPES.map((t) => `<option>${t}</option>`).join("")}</select>
-          </label>
-          <label class="te-field"><span>Time</span><input id="inst-time" type="time" value="${hhmm(Date.now())}" /></label>
-          <input id="inst-note" class="inst-note-input" type="text" placeholder="Note (optional)" />
-          <button class="btn btn-primary btn-sm" id="inst-add">Add instance</button>
+          <label class="te-field"><span>From</span><input id="inst-from" type="time" value="${hhmm(Date.now())}" /></label>
+          <label class="te-field"><span>To</span><input id="inst-to" type="time" value="${hhmm(Date.now())}" /></label>
+          <input id="inst-reason" class="inst-note-input" type="text" placeholder="Reason" />
+          <button class="btn btn-primary btn-sm" id="inst-add">Save</button>
         </div>
       </div>`;
 
@@ -1064,13 +1073,12 @@ async function openAgentDetail(uid, u) {
 
     // instances wiring
     $("inst-add").addEventListener("click", guard(async () => {
-      await addInstance(uid, u.name, {
-        type: $("inst-type").value,
-        note: $("inst-note").value,
-        hhmm: $("inst-time").value,
-        dayKey,
-      });
-      toast("Instance added");
+      const fromHHMM = $("inst-from").value, toHHMM = $("inst-to").value;
+      const reason = $("inst-reason").value.trim();
+      if (!fromHHMM || !toHHMM) { toast("Set both times.", true); return; }
+      if (!reason) { toast("Add a reason.", true); return; }
+      await addInstance(uid, u.name, { fromHHMM, toHHMM, reason, dayKey });
+      toast("Instance saved");
       draw(dayKey);
     }));
     viewEl.querySelectorAll(".inst-row").forEach((row) => {
@@ -1505,6 +1513,7 @@ function icon(name) {
     grid: '<rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/>',
     list: '<line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>',
     check: '<path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>',
+    map: '<polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/>',
     clock: '<circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 14"/>',
     user: '<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
     users: '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',

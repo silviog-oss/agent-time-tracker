@@ -1,0 +1,556 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>Office Map</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+<style>*{margin:0;padding:0;box-sizing:border-box;}body{font-family:system-ui,sans-serif;background:#f8fafc;}</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useRef, useCallback, useEffect } = React;
+
+const ROLES = ["Supervisor","CORA","Contador","Newbie","Customer Service","HR","KB",""];
+const roleStyle = {
+  "Supervisor":      {bg:"#ede9fe",text:"#6d28d9",border:"#c4b5fd"},
+  "CORA":            {bg:"#e0f2fe",text:"#0369a1",border:"#7dd3fc"},
+  "Contador":        {bg:"#fef3c7",text:"#b45309",border:"#fcd34d"},
+  "Newbie":          {bg:"#f1f5f9",text:"#475569",border:"#cbd5e1"},
+  "Customer Service":{bg:"#dcfce7",text:"#15803d",border:"#86efac"},
+  "HR":              {bg:"#fce7f3",text:"#be185d",border:"#f9a8d4"},
+  "KB":              {bg:"#ffedd5",text:"#c2410c",border:"#fdba74"},
+  "":                {bg:"#f8fafc",text:"#94a3b8",border:"#e2e8f0"},
+};
+const DEVICE_TYPES=["Computer","Monitor","Mouse","Headset","Keyboard","Laptop"];
+const deviceIcon={Computer:"🖥️",Monitor:"🖥️",Mouse:"🖱️",Headset:"🎧",Keyboard:"⌨️",Laptop:"💻"};
+const emptyDevice=()=>({type:"Computer",model:"",sn:"",tag:""});
+
+const seed=[
+  {id:1,name:"Anahi",role:"Contador",row:1,col:1},
+  {id:2,name:"Fabiola",role:"Contador",row:1,col:2},
+  {id:3,name:"Barron",role:"CORA",row:1,col:4},
+  {id:4,name:"Eliel",role:"CORA",row:1,col:5},
+  {id:5,name:"Kilian",role:"CORA",row:1,col:7},
+  {id:6,name:"Saul",role:"CORA",row:1,col:8},
+  {id:7,name:"Alex",role:"Contador",row:2,col:1},
+  {id:8,name:"Alex Ibarra",role:"Contador",row:2,col:3},
+  {id:9,name:"Hilary",role:"Customer Service",row:2,col:4},
+  {id:10,name:"Leah",role:"Newbie",row:2,col:5},
+  {id:11,name:"Jewel",role:"Supervisor",row:2,col:7},
+  {id:12,name:"Aris",role:"Newbie",row:2,col:8},
+  {id:13,name:"Albert",role:"Supervisor",row:3,col:3},
+  {id:14,name:"Axel",role:"Newbie",row:3,col:4},
+  {id:15,name:"Leo",role:"Customer Service",row:3,col:6},
+  {id:16,name:"Oliver C",role:"Customer Service",row:3,col:7},
+  {id:17,name:"Angi",role:"Newbie",row:3,col:8},
+  {id:18,name:"Mariana",role:"Customer Service",row:3,col:9},
+  {id:19,name:"Adrian M",role:"Customer Service",row:3,col:10},
+  {id:20,name:"Raul M.",role:"Customer Service",row:4,col:3},
+  {id:21,name:"Andrew D.",role:"Newbie",row:4,col:4},
+  {id:22,name:"David Haaz",role:"Customer Service",row:4,col:5},
+  {id:23,name:"Casandra",role:"Customer Service",row:4,col:7},
+  {id:24,name:"Frank",role:"Customer Service",row:4,col:8},
+  {id:25,name:"Joel",role:"Customer Service",row:4,col:10},
+  {id:26,name:"Mario",role:"Supervisor",row:5,col:4},
+  {id:27,name:"Roman F",role:"Customer Service",row:5,col:5},
+  {id:28,name:"Crista N",role:"Customer Service",row:5,col:6},
+  {id:29,name:"Manny",role:"Supervisor",row:5,col:10},
+  {id:30,name:"Diana",role:"Supervisor",row:6,col:4},
+  {id:31,name:"Silvio Garibay",role:"Customer Service",row:6,col:5},
+  {id:32,name:"Rafa",role:"KB",row:6,col:6},
+  {id:40,name:"Daniel",role:"KB",row:6,col:7},
+  {id:33,name:"Alexander",role:"KB",row:6,col:8},
+  {id:34,name:"Adrea",role:"HR",row:6,col:9},
+  {id:35,name:"Bibi",role:"HR",row:6,col:10},
+  {id:36,name:"Paola",role:"HR",row:6,col:11},
+  {id:37,name:"Peter",role:"",row:7,col:11},
+  {id:38,name:"Lua",role:"",row:8,col:2},
+  {id:39,name:"Adrian N",role:"",row:8,col:7},
+];
+
+const defaultState={cubicles:seed.map(c=>({...c,devices:[],notes:""})),wfh:[],rows:8,cols:11};
+const STORAGE_KEY="office_map_v1";
+
+const btn=(bg,text,extra={})=>({background:bg,color:text,border:"none",borderRadius:7,padding:"7px 13px",fontSize:12,fontWeight:600,cursor:"pointer",...extra});
+const iStyle={width:"100%",padding:"6px 8px",borderRadius:6,border:"1px solid #e2e8f0",fontSize:12,boxSizing:"border-box"};
+const lStyle={fontSize:10,fontWeight:600,color:"#94a3b8",textTransform:"uppercase",marginBottom:2};
+
+function matches(c,q){
+  if(!q)return false;
+  const s=q.toLowerCase();
+  if(c.name.toLowerCase().includes(s))return true;
+  if((c.role||"").toLowerCase().includes(s))return true;
+  if((c.notes||"").toLowerCase().includes(s))return true;
+  for(const d of(c.devices||[])){
+    if((d.type||"").toLowerCase().includes(s))return true;
+    if((d.model||"").toLowerCase().includes(s))return true;
+    if((d.sn||"").toLowerCase().includes(s))return true;
+    if((d.tag||"").toLowerCase().includes(s))return true;
+  }
+  return false;
+}
+
+function App(){
+  const loadInitial=()=>{
+    try{const s=localStorage.getItem(STORAGE_KEY);if(s){const p=JSON.parse(s);if(p.state)return{history:[p.state],nextId:p.nextId||100,savedAt:p.savedAt||null};}}catch{}
+    return{history:[defaultState],nextId:100,savedAt:null};
+  };
+  const init=loadInitial();
+  const [history,setHistory]=useState(init.history);
+  const [histPtr,setHistPtr]=useState(0);
+  const [nextId,setNextId]=useState(init.nextId);
+  const [savedAt,setSavedAt]=useState(init.savedAt);
+  const [hasUnsaved,setHasUnsaved]=useState(false);
+  const [selected,setSelected]=useState(null);
+  const [panel,setPanel]=useState("view");
+  const [search,setSearch]=useState("");
+  const [dragging,setDragging]=useState(null);
+  const [dragOver,setDragOver]=useState(null);
+  const [confirm,setConfirm]=useState(null);
+  const [toast,setToast]=useState("");
+  const [toastType,setToastType]=useState("info");
+  const [addForm,setAddForm]=useState({name:"",role:"",row:"",col:""});
+  const [devicesForm,setDevicesForm]=useState(null);
+  const [expandedDevices,setExpandedDevices]=useState({});
+  const [personForm,setPersonForm]=useState(null);
+  const [showWFH,setShowWFH]=useState(false);
+  const [wfhForm,setWfhForm]=useState({name:"",role:""});
+  const [wfhSelected,setWfhSelected]=useState(null);
+  const [wfhPanel,setWfhPanel]=useState("view");
+  const [wfhDevicesForm,setWfhDevicesForm]=useState(null);
+  const [wfhExpandedDevices,setWfhExpandedDevices]=useState({});
+  const [returnCoords,setReturnCoords]=useState({});
+  const dragItem=useRef(null);
+
+  const state=history[histPtr];
+  const {cubicles,wfh,rows:ROWS,cols:COLS}=state;
+  const canUndo=histPtr>0,canRedo=histPtr<history.length-1;
+
+  const pushState=useCallback((patch)=>{
+    const next={...state,...patch};
+    setHistory(h=>[...h.slice(0,histPtr+1),next]);
+    setHistPtr(p=>p+1);
+    setHasUnsaved(true);
+  },[histPtr,state]);
+
+  function saveMap(){
+    try{
+      localStorage.setItem(STORAGE_KEY,JSON.stringify({state:history[histPtr],nextId,savedAt:new Date().toISOString()}));
+      const now=new Date().toISOString();
+      setSavedAt(now);setHasUnsaved(false);showToast("💾 Saved!","success");
+    }catch{showToast("❌ Save failed","error");}
+  }
+
+  function undo(){if(!canUndo)return;setHistPtr(p=>p-1);setSelected(null);setHasUnsaved(true);showToast("↩️ Undone!");}
+  function redo(){if(!canRedo)return;setHistPtr(p=>p+1);setSelected(null);setHasUnsaved(true);showToast("↪️ Redone!");}
+
+  const grid={};cubicles.forEach(c=>{grid[`${c.row}-${c.col}`]=c;});
+  const hlIds=search.trim()?new Set(cubicles.filter(c=>matches(c,search)).map(c=>c.id)):new Set();
+  const whlIds=search.trim()?new Set(wfh.filter(c=>matches(c,search)).map(c=>c.id)):new Set();
+
+  const toastBg={success:"#16a34a",error:"#dc2626",info:"#1e293b"};
+  function showToast(msg,type="info"){setToast(msg);setToastType(type);setTimeout(()=>setToast(""),2400);}
+
+  function selectCubicle(c){if(dragging)return;setSelected(c);setPanel("view");setDevicesForm((c.devices||[]).map(d=>({...d})));setPersonForm({name:c.name,role:c.role});setExpandedDevices({});}
+
+  function resizeGrid(dr,dc){
+    const nr=Math.max(1,ROWS+dr),nc=Math.max(1,COLS+dc);
+    pushState({rows:nr,cols:nc,cubicles:cubicles.filter(c=>c.row<=nr&&c.col<=nc)});
+    showToast(`📐 ${nr}×${nc}`);
+  }
+
+  function saveDevices(){pushState({cubicles:cubicles.map(c=>c.id===selected.id?{...c,devices:devicesForm}:c)});setSelected(s=>({...s,devices:devicesForm}));setPanel("view");showToast("✅ Devices saved!");}
+  function removeDeviceInline(i){const d2=(selected.devices||[]).filter((_,idx)=>idx!==i);pushState({cubicles:cubicles.map(c=>c.id===selected.id?{...c,devices:d2}:c)});setSelected(s=>({...s,devices:d2}));setExpandedDevices(e=>{const n={...e};delete n[i];return n;});showToast("🗑️ Device removed!");}
+  function savePerson(){if(!personForm.name.trim())return;pushState({cubicles:cubicles.map(c=>c.id===selected.id?{...c,name:personForm.name,role:personForm.role}:c)});setSelected(s=>({...s,name:personForm.name,role:personForm.role}));setPanel("view");showToast("✅ Updated!");}
+  function updateNotes(val){pushState({cubicles:cubicles.map(c=>c.id===selected.id?{...c,notes:val}:c)});setSelected(s=>({...s,notes:val}));}
+  function removePerson(){pushState({cubicles:cubicles.filter(c=>c.id!==confirm.id)});setSelected(null);setConfirm(null);showToast("🗑️ Removed!");}
+  function sendToWFH(cub){pushState({cubicles:cubicles.filter(c=>c.id!==cub.id),wfh:[...wfh,{...cub}]});setSelected(null);setConfirm(null);showToast(`🏠 ${cub.name} → WFH!`);}
+  function returnFromWFH(person,row,col){
+    if(!row||!col){showToast("⚠️ Enter row & col","error");return;}
+    const r=parseInt(row),co=parseInt(col);
+    if(isNaN(r)||isNaN(co)||r<1||r>ROWS||co<1||co>COLS){showToast(`⚠️ Row 1–${ROWS}, Col 1–${COLS}`,"error");return;}
+    if(grid[`${r}-${co}`]){showToast("⚠️ Spot taken!","error");return;}
+    pushState({cubicles:[...cubicles,{...person,row:r,col:co}],wfh:wfh.filter(w=>w.id!==person.id)});
+    setWfhSelected(null);showToast(`✅ ${person.name} back on map!`);
+  }
+  function addBlock(){
+    const r=parseInt(addForm.row),co=parseInt(addForm.col);
+    if(!r||!co||r<1||r>ROWS||co<1||co>COLS){showToast(`⚠️ Row 1–${ROWS}, Col 1–${COLS}`,"error");return;}
+    if(grid[`${r}-${co}`]){showToast("⚠️ Spot taken!","error");return;}
+    const nc={id:nextId,name:addForm.name.trim()||"",role:"__block__",row:r,col:co,devices:[],notes:""};
+    pushState({cubicles:[...cubicles,nc]});setNextId(n=>n+1);setAddForm({name:"",role:"",row:"",col:""});setPanel("view");showToast("⬛ Block placed!");
+  }
+  function addPerson(){
+    const r=parseInt(addForm.row),co=parseInt(addForm.col);
+    if(!addForm.name.trim()){showToast("⚠️ Name required","error");return;}
+    if(!r||!co||r<1||r>ROWS||co<1||co>COLS){showToast(`⚠️ Row 1–${ROWS}, Col 1–${COLS}`,"error");return;}
+    if(grid[`${r}-${co}`]){showToast("⚠️ Spot taken!","error");return;}
+    const nc={id:nextId,name:addForm.name.trim(),role:addForm.role,row:r,col:co,devices:[],notes:""};
+    pushState({cubicles:[...cubicles,nc]});setNextId(n=>n+1);setAddForm({name:"",role:"",row:"",col:""});setPanel("view");showToast(`✅ ${nc.name} added!`);
+  }
+  function addToWFH(){if(!wfhForm.name.trim()){showToast("⚠️ Name required","error");return;}const nc={id:nextId,name:wfhForm.name.trim(),role:wfhForm.role,devices:[],notes:""};pushState({wfh:[...wfh,nc]});setNextId(n=>n+1);setWfhForm({name:"",role:""});showToast(`✅ ${nc.name} added to WFH!`);}
+  function saveWfhDevices(){pushState({wfh:wfh.map(w=>w.id===wfhSelected.id?{...w,devices:wfhDevicesForm}:w)});setWfhSelected(s=>({...s,devices:wfhDevicesForm}));setWfhPanel("view");showToast("✅ Devices saved!");}
+  function removeWfhDeviceInline(i){const d2=(wfhSelected.devices||[]).filter((_,idx)=>idx!==i);pushState({wfh:wfh.map(w=>w.id===wfhSelected.id?{...w,devices:d2}:w)});setWfhSelected(s=>({...s,devices:d2}));setWfhExpandedDevices(e=>{const n={...e};delete n[i];return n;});showToast("🗑️ Device removed!");}
+  function removeFromWFH(id){pushState({wfh:wfh.filter(w=>w.id!==id)});setWfhSelected(null);showToast("🗑️ Removed from WFH!");}
+
+  function handleDragStart(e,cub){dragItem.current=cub;setDragging({id:cub.id,row:cub.row,col:cub.col});e.dataTransfer.effectAllowed="move";}
+  function handleDragEnd(){setDragging(null);setDragOver(null);dragItem.current=null;}
+  function handleDragOver(e,row,col){e.preventDefault();setDragOver({row,col});}
+  function handleDrop(e,row,col){
+    e.preventDefault();const src=dragItem.current;if(!src)return;
+    const occ=grid[`${row}-${col}`];
+    pushState({cubicles:cubicles.map(c=>{if(c.id===src.id)return{...c,row,col};if(occ&&c.id===occ.id)return{...c,row:src.row,col:src.col};return c;})});
+    if(selected?.id===src.id)setSelected(s=>({...s,row,col}));
+    if(selected&&occ?.id===selected.id)setSelected(s=>({...s,row:src.row,col:src.col}));
+    setDragging(null);setDragOver(null);dragItem.current=null;showToast("📍 Seat updated!");
+  }
+
+  const rs=selected?(roleStyle[selected.role]||roleStyle[""]):null;
+  const wrs=wfhSelected?(roleStyle[wfhSelected.role]||roleStyle[""]):null;
+
+  const fmtDate=iso=>{if(!iso)return null;const d=new Date(iso);return d.toLocaleDateString()+' '+d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});};
+
+  const DeviceList=({devices,expanded,setExpanded,onRemove})=>(
+    <>
+      {(devices||[]).length===0
+        ?<div style={{fontSize:12,color:"#94a3b8",padding:8,background:"#f8fafc",borderRadius:7,textAlign:"center",marginBottom:10}}>No devices assigned.</div>
+        :(devices||[]).map((d,i)=>(
+          <div key={i} style={{marginBottom:6,borderRadius:8,border:"1px solid #e2e8f0",overflow:"hidden"}}>
+            <div style={{background:expanded[i]?"#f0f9ff":"#f8fafc",padding:"8px 10px",display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:13}}>
+              <button onClick={()=>setExpanded(e=>({...e,[i]:!e[i]}))} style={{background:"none",border:"none",cursor:"pointer",flex:1,textAlign:"left",fontSize:13,padding:0}}>
+                {deviceIcon[d.type]||"📦"} <strong>{d.type}</strong>{d.model?` — ${d.model}`:""}
+              </button>
+              <div style={{display:"flex",gap:6,alignItems:"center"}}>
+                <span style={{color:"#94a3b8",fontSize:11,cursor:"pointer"}} onClick={()=>setExpanded(e=>({...e,[i]:!e[i]}))}>{expanded[i]?"▲":"▼"}</span>
+                <button onClick={()=>onRemove(i)} style={{background:"none",border:"none",cursor:"pointer",color:"#ef4444",fontSize:15,padding:"0 2px"}}>🗑</button>
+              </div>
+            </div>
+            {expanded[i]&&(
+              <div style={{padding:"8px 12px",background:"#fff",display:"flex",flexDirection:"column",gap:5,borderTop:"1px solid #f1f5f9"}}>
+                {[["Model",d.model],["Serial No.",d.sn],["Asset Tag",d.tag]].map(([l,v])=>(
+                  <div key={l} style={{display:"flex",justifyContent:"space-between",fontSize:12}}>
+                    <span style={{color:"#94a3b8",fontWeight:600}}>{l}</span>
+                    <span style={{color:v?"#1e293b":"#cbd5e1",fontStyle:v?"normal":"italic"}}>{v||"—"}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        ))
+      }
+    </>
+  );
+
+  const DeviceEditList=({form,setForm})=>(
+    <>
+      <div style={{maxHeight:300,overflowY:"auto",paddingRight:2}}>
+        {form.map((d,i)=>(
+          <div key={i} style={{marginBottom:10,background:"#f8fafc",borderRadius:8,padding:10,border:"1px solid #e2e8f0"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+              <span style={{fontSize:12,fontWeight:700,color:"#475569"}}>Device {i+1}</span>
+              <button onClick={()=>setForm(f=>f.filter((_,idx)=>idx!==i))} style={{background:"none",border:"none",cursor:"pointer",color:"#ef4444",fontSize:16}}>🗑</button>
+            </div>
+            <div style={{marginBottom:5}}><div style={lStyle}>Type</div>
+              <select value={d.type} onChange={e=>setForm(f=>f.map((x,idx)=>idx===i?{...x,type:e.target.value}:x))} style={iStyle}>
+                {DEVICE_TYPES.map(t=><option key={t} value={t}>{deviceIcon[t]} {t}</option>)}
+              </select>
+            </div>
+            {[["model","Model"],["sn","Serial Number"],["tag","Asset Tag"]].map(([field,lbl])=>(
+              <div key={field} style={{marginBottom:5}}><div style={lStyle}>{lbl}</div>
+                <input value={d[field]} onChange={e=>setForm(f=>f.map((x,idx)=>idx===i?{...x,[field]:e.target.value}:x))} placeholder={`Enter ${lbl}`} style={iStyle}/>
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
+      <button onClick={()=>setForm(f=>[...f,{...emptyDevice(),_id:Date.now()}])} style={{...btn("#f1f5f9","#475569"),width:"100%",marginBottom:8,padding:"7px 0",fontSize:12}}>＋ Add Device</button>
+    </>
+  );
+
+  return (
+    <div style={{fontFamily:"system-ui,sans-serif",background:"#f8fafc",minHeight:"100vh",padding:16}}>
+      <div style={{maxWidth:1200,margin:"0 auto"}}>
+
+        {toast&&<div style={{position:"fixed",top:16,left:"50%",transform:"translateX(-50%)",background:toastBg[toastType]||"#1e293b",color:"#fff",padding:"10px 20px",borderRadius:10,fontSize:13,fontWeight:600,zIndex:9999,boxShadow:"0 4px 20px rgba(0,0,0,0.2)",pointerEvents:"none"}}>{toast}</div>}
+
+        {confirm&&(
+          <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:9998}}>
+            <div style={{background:"#fff",borderRadius:12,padding:24,width:300,textAlign:"center",boxShadow:"0 8px 32px rgba(0,0,0,0.2)"}}>
+              <div style={{fontSize:32,marginBottom:8}}>⚠️</div>
+              <div style={{fontSize:15,fontWeight:700,marginBottom:6}}>What to do with {confirm.name}?</div>
+              <div style={{display:"flex",flexDirection:"column",gap:8,marginTop:12}}>
+                <button onClick={()=>sendToWFH(confirm)} style={{...btn("#3b82f6","#fff"),padding:"9px 0"}}>🏠 Move to WFH</button>
+                <button onClick={removePerson} style={{...btn("#ef4444","#fff"),padding:"9px 0"}}>🗑️ Remove Permanently</button>
+                <button onClick={()=>setConfirm(null)} style={{...btn("#f1f5f9","#475569"),padding:"9px 0"}}>Cancel</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {showWFH&&(
+          <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:9997}}>
+            <div style={{background:"#fff",borderRadius:14,width:520,maxHeight:"85vh",display:"flex",flexDirection:"column",boxShadow:"0 12px 48px rgba(0,0,0,0.25)",overflow:"hidden"}}>
+              <div style={{padding:"16px 20px",borderBottom:"1px solid #f1f5f9",display:"flex",justifyContent:"space-between",alignItems:"center",background:"#f8fafc"}}>
+                <div><div style={{fontSize:16,fontWeight:700}}>🏠 Work From Home</div><div style={{fontSize:12,color:"#94a3b8"}}>{wfh.length} agent{wfh.length!==1?"s":""} remote</div></div>
+                <button onClick={()=>{setShowWFH(false);setWfhSelected(null);}} style={{background:"none",border:"none",fontSize:20,cursor:"pointer",color:"#94a3b8"}}>×</button>
+              </div>
+              <div style={{display:"flex",flex:1,overflow:"hidden"}}>
+                <div style={{width:200,borderRight:"1px solid #f1f5f9",overflowY:"auto",padding:10}}>
+                  <div style={{marginBottom:10,background:"#f0fdf4",borderRadius:8,padding:8,border:"1px solid #86efac"}}>
+                    <div style={{fontSize:10,fontWeight:700,color:"#15803d",marginBottom:6}}>＋ ADD WFH AGENT</div>
+                    <input value={wfhForm.name} onChange={e=>setWfhForm(f=>({...f,name:e.target.value}))} placeholder="Name" style={{...iStyle,marginBottom:5}}/>
+                    <select value={wfhForm.role} onChange={e=>setWfhForm(f=>({...f,role:e.target.value}))} style={{...iStyle,marginBottom:6}}>
+                      {ROLES.map(r=><option key={r} value={r}>{r||"— No role —"}</option>)}
+                    </select>
+                    <button onClick={addToWFH} style={{...btn("#15803d","#fff"),width:"100%",padding:"5px 0",fontSize:11}}>Add</button>
+                  </div>
+                  {wfh.length===0?<div style={{fontSize:12,color:"#94a3b8",textAlign:"center",padding:"20px 0"}}>No WFH agents</div>
+                    :wfh.map(w=>{const ws=roleStyle[w.role]||roleStyle[""];const im=whlIds.has(w.id);
+                      return(<div key={w.id} onClick={()=>{setWfhSelected(w);setWfhPanel("view");setWfhDevicesForm((w.devices||[]).map(d=>({...d})));setWfhExpandedDevices({});}}
+                        style={{padding:"8px 10px",borderRadius:8,marginBottom:5,cursor:"pointer",border:`1px solid ${wfhSelected?.id===w.id?"#3b82f6":im?"#eab308":ws.border}`,background:im?"#fef08a":wfhSelected?.id===w.id?"#eff6ff":ws.bg,transition:"all 0.1s"}}>
+                        <div style={{fontSize:13,fontWeight:700}}>{w.name}</div>
+                        {w.role&&<div style={{fontSize:10,color:ws.text,fontWeight:600}}>{w.role}</div>}
+                        {(w.devices||[]).length>0&&<div style={{fontSize:10,color:"#94a3b8"}}>📦 {w.devices.length}</div>}
+                      </div>);
+                    })
+                  }
+                </div>
+                <div style={{flex:1,overflowY:"auto",padding:16}}>
+                  {!wfhSelected?<div style={{textAlign:"center",color:"#94a3b8",marginTop:40}}><div style={{fontSize:28}}>👈</div><div style={{fontSize:13,marginTop:8}}>Select an agent</div></div>:(
+                    <>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
+                        <div>
+                          <div style={{fontSize:16,fontWeight:700}}>{wfhSelected.name}</div>
+                          {wfhSelected.role&&<span style={{fontSize:11,color:wrs.text,background:wrs.bg,border:`1px solid ${wrs.border}`,borderRadius:5,padding:"2px 7px",fontWeight:700}}>{wfhSelected.role}</span>}
+                        </div>
+                        <button onClick={()=>setWfhSelected(null)} style={{background:"none",border:"none",fontSize:16,cursor:"pointer",color:"#94a3b8"}}>×</button>
+                      </div>
+                      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:5,marginBottom:12}}>
+                        {[["view","👁 View"],["devices","🖥 Devices"]].map(([p,label])=>(
+                          <button key={p} onClick={()=>{setWfhPanel(p);if(p==="devices")setWfhDevicesForm((wfhSelected.devices||[]).map(d=>({...d})));}}
+                            style={{...btn(wfhPanel===p?"#3b82f6":"#f1f5f9",wfhPanel===p?"#fff":"#475569"),padding:"7px 0",fontSize:11}}>{label}</button>
+                        ))}
+                      </div>
+                      {wfhPanel==="view"&&(
+                        <>
+                          <div style={{fontSize:12,fontWeight:600,color:"#475569",marginBottom:7}}>Devices ({(wfhSelected.devices||[]).length})</div>
+                          <DeviceList devices={wfhSelected.devices} expanded={wfhExpandedDevices} setExpanded={setWfhExpandedDevices} onRemove={removeWfhDeviceInline}/>
+                          <div style={{marginTop:10,padding:10,background:"#f0fdf4",borderRadius:8,border:"1px solid #86efac"}}>
+                            <div style={{fontSize:11,fontWeight:600,color:"#15803d",marginBottom:6}}>↩ Return to Map</div>
+                            <div style={{display:"flex",gap:5,marginBottom:6}}>
+                              <div style={{flex:1}}><div style={lStyle}>Row</div><input type="number" value={returnCoords[wfhSelected.id]?.row||""} onChange={e=>setReturnCoords(r=>({...r,[wfhSelected.id]:{...r[wfhSelected.id],row:e.target.value}}))} style={iStyle} placeholder="1–?"/></div>
+                              <div style={{flex:1}}><div style={lStyle}>Col</div><input type="number" value={returnCoords[wfhSelected.id]?.col||""} onChange={e=>setReturnCoords(r=>({...r,[wfhSelected.id]:{...r[wfhSelected.id],col:e.target.value}}))} style={iStyle} placeholder="1–?"/></div>
+                            </div>
+                            <button onClick={()=>returnFromWFH(wfhSelected,returnCoords[wfhSelected.id]?.row,returnCoords[wfhSelected.id]?.col)} style={{...btn("#15803d","#fff"),width:"100%",padding:"7px 0",fontSize:12}}>Place on Map</button>
+                          </div>
+                          <button onClick={()=>removeFromWFH(wfhSelected.id)} style={{...btn("#fef2f2","#dc2626"),width:"100%",padding:"7px 0",fontSize:12,border:"1px solid #fecaca",marginTop:8}}>🗑️ Remove {wfhSelected.name}</button>
+                        </>
+                      )}
+                      {wfhPanel==="devices"&&wfhDevicesForm&&(
+                        <>
+                          <div style={{fontSize:12,fontWeight:600,color:"#475569",marginBottom:8}}>Edit Devices</div>
+                          <DeviceEditList form={wfhDevicesForm} setForm={setWfhDevicesForm}/>
+                          <div style={{display:"flex",gap:6}}><button onClick={()=>setWfhPanel("view")} style={{...btn("#f1f5f9","#475569"),flex:1}}>Cancel</button><button onClick={saveWfhDevices} style={{...btn("#22c55e","#fff"),flex:1}}>Save</button></div>
+                        </>
+                      )}
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Header */}
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10,flexWrap:"wrap",gap:8}}>
+          <div>
+            <h1 style={{margin:0,fontSize:20,fontWeight:700,color:"#1e293b"}}>🗺️ Office Floor Map</h1>
+            <p style={{margin:"2px 0 0",fontSize:12,color:"#64748b"}}>Click to manage · Drag to move/swap · {ROWS}×{COLS}</p>
+          </div>
+          <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
+            <button onClick={undo} disabled={!canUndo} style={{...btn(canUndo?"#f1f5f9":"#f8fafc",canUndo?"#374151":"#cbd5e1"),padding:"7px 11px",fontSize:15,opacity:canUndo?1:0.5}}>↩️</button>
+            <button onClick={redo} disabled={!canRedo} style={{...btn(canRedo?"#f1f5f9":"#f8fafc",canRedo?"#374151":"#cbd5e1"),padding:"7px 11px",fontSize:15,opacity:canRedo?1:0.5}}>↪️</button>
+            <div style={{position:"relative"}}>
+              <span style={{position:"absolute",left:9,top:"50%",transform:"translateY(-50%)",fontSize:13,color:"#94a3b8"}}>🔍</span>
+              <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search name, role, SN, tag…" style={{padding:"7px 10px 7px 28px",borderRadius:8,border:`1.5px solid ${search?"#3b82f6":"#cbd5e1"}`,fontSize:12,width:200,outline:"none"}}/>
+              {search&&<button onClick={()=>setSearch("")} style={{position:"absolute",right:8,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",cursor:"pointer",color:"#94a3b8",fontSize:14,padding:0}}>×</button>}
+            </div>
+            {search&&<span style={{fontSize:12,color:"#3b82f6",fontWeight:600}}>{hlIds.size+whlIds.size} match{hlIds.size+whlIds.size!==1?"es":""}</span>}
+            <button onClick={()=>setShowWFH(true)} style={{...btn("#0ea5e9","#fff")}}>🏠 WFH {wfh.length>0&&<span style={{background:"#fff",color:"#0ea5e9",borderRadius:999,padding:"1px 6px",fontSize:10,fontWeight:800,marginLeft:4}}>{wfh.length}</span>}</button>
+            <button onClick={()=>{setSelected(null);setPanel("addblack");setAddForm({name:"",role:"",row:"",col:""}); }} style={{...btn("#1e293b","#fff")}}>⬛ Add Block</button>
+            <button onClick={()=>{setSelected(null);setPanel("add");setAddForm({name:"",role:"",row:"",col:""});}} style={{...btn("#3b82f6","#fff")}}>＋ Add Person</button>
+            <button onClick={saveMap} style={{...btn(hasUnsaved?"#16a34a":"#f1f5f9",hasUnsaved?"#fff":"#94a3b8"),border:hasUnsaved?"none":"1px solid #e2e8f0",minWidth:80}}>💾 {hasUnsaved?"Save":"Saved"}</button>
+          </div>
+        </div>
+
+        <div style={{fontSize:11,color:"#94a3b8",marginBottom:8}}>
+          {savedAt?<span>{hasUnsaved?"⚠️ Unsaved · ":"✅ "}Last saved: {fmtDate(savedAt)}</span>:<span>{hasUnsaved?"⚠️ Unsaved changes — click 💾 Save":"No save yet — click 💾 Save"}</span>}
+        </div>
+
+        {/* Resize */}
+        <div style={{display:"flex",gap:6,marginBottom:10,alignItems:"center",flexWrap:"wrap"}}>
+          <span style={{fontSize:12,fontWeight:600,color:"#475569"}}>📐 Room size:</span>
+          {[["Rows",()=>resizeGrid(-1,0),ROWS,()=>resizeGrid(1,0)],["Cols",()=>resizeGrid(0,-1),COLS,()=>resizeGrid(0,1)]].map(([lbl,dec,val,inc])=>(
+            <div key={lbl} style={{display:"flex",alignItems:"center",gap:4,background:"#fff",border:"1px solid #e2e8f0",borderRadius:8,padding:"4px 8px"}}>
+              <span style={{fontSize:11,color:"#94a3b8"}}>{lbl}</span>
+              <button onClick={dec} style={{...btn("#fef2f2","#dc2626"),padding:"2px 8px",fontSize:13}}>−</button>
+              <span style={{fontSize:13,fontWeight:700,minWidth:20,textAlign:"center"}}>{val}</span>
+              <button onClick={inc} style={{...btn("#f0fdf4","#15803d"),padding:"2px 8px",fontSize:13}}>＋</button>
+            </div>
+          ))}
+        </div>
+
+        {/* Legend */}
+        <div style={{display:"flex",gap:4,flexWrap:"wrap",marginBottom:10}}>
+          {Object.entries(roleStyle).filter(([k])=>k!=="").map(([role,s])=>(
+            <span key={role} style={{background:s.bg,color:s.text,border:`1px solid ${s.border}`,borderRadius:5,padding:"2px 8px",fontSize:11,fontWeight:600}}>{role}</span>
+          ))}
+        </div>
+
+        <div style={{display:"flex",gap:16,alignItems:"flex-start",flexWrap:"wrap"}}>
+          {/* Map */}
+          <div style={{background:"#fff",borderRadius:12,border:"1px solid #e2e8f0",padding:12,flex:"1 1 600px",overflowX:"auto"}}>
+            <div style={{textAlign:"center",fontSize:11,color:"#94a3b8",marginBottom:6,letterSpacing:2,textTransform:"uppercase"}}>— Back of Room / Window —</div>
+            <div style={{display:"grid",gridTemplateColumns:`repeat(${COLS}, 82px)`,gridTemplateRows:`repeat(${ROWS}, 66px)`,gap:3,minWidth:COLS*85}}>
+              {Array.from({length:ROWS},(_,r)=>Array.from({length:COLS},(_,c)=>{
+                const row=r+1,col=c+1,key=`${row}-${col}`;
+                const cub=grid[key];
+                const isOver=dragOver?.row===row&&dragOver?.col===col;
+                const isDraggingThis=dragging&&cub&&dragging.id===cub.id;
+                const isSel=selected&&cub&&selected.id===cub.id;
+                const isMatch=cub&&hlIds.has(cub.id);
+                const isDimmed=search&&cub&&!isMatch;
+                const isBlock=cub?.role==="__block__";
+                const s=cub?(isBlock?{bg:"#1e293b",text:"#fff",border:"#0f172a"}:(roleStyle[cub.role]||roleStyle[""])):null;
+                const cubDevices=cub?.devices||[];
+                if(!cub)return(<div key={key} onDragOver={e=>handleDragOver(e,row,col)} onDrop={e=>handleDrop(e,row,col)}
+                  style={{borderRadius:6,background:isOver?"#bfdbfe":"transparent",border:isOver?"2px dashed #3b82f6":"1px dashed transparent",transition:"background 0.1s"}}/>);
+                return(
+                  <div key={key} draggable onDragStart={e=>handleDragStart(e,cub)} onDragEnd={handleDragEnd}
+                    onDragOver={e=>handleDragOver(e,row,col)} onDrop={e=>handleDrop(e,row,col)} onClick={()=>selectCubicle(cub)}
+                    style={{background:isMatch?"#fef08a":isOver&&dragging?.id!==cub.id?"#bfdbfe":s.bg,
+                      border:isSel?"2px solid #3b82f6":isMatch?"2px solid #eab308":isOver&&dragging?.id!==cub.id?"2px dashed #3b82f6":`1px solid ${s.border}`,
+                      borderRadius:6,padding:"4px 5px",cursor:"grab",display:"flex",flexDirection:"column",justifyContent:"center",alignItems:"center",
+                      textAlign:"center",opacity:isDraggingThis?0.35:isDimmed?0.3:1,
+                      boxShadow:isMatch?"0 0 0 3px rgba(234,179,8,0.35)":isSel?"0 0 0 3px rgba(59,130,246,0.25)":"none",
+                      transform:isMatch?"scale(1.06)":"scale(1)",transition:"all 0.15s",userSelect:"none",position:"relative",zIndex:isMatch?2:1}}>
+                    <div style={{position:"absolute",top:2,right:4,fontSize:9,color:isBlock?"#475569":"#cbd5e1"}}>⠿</div>
+                    <div style={{fontSize:11,fontWeight:700,color:isBlock?"#94a3b8":"#1e293b",lineHeight:1.2}}>{isBlock?(cub.name||"⬛"):cub.name}</div>
+                    {!isBlock&&cub.role&&<div style={{fontSize:9,color:s.text,fontWeight:700,marginTop:2,background:"rgba(255,255,255,0.6)",borderRadius:3,padding:"1px 4px"}}>{cub.role}</div>}
+                    {!isBlock&&cubDevices.length>0&&<div style={{fontSize:9,color:"#94a3b8",marginTop:1}}>📦 {cubDevices.length}</div>}
+                  </div>
+                );
+              }))}
+            </div>
+            <div style={{textAlign:"center",fontSize:11,color:"#94a3b8",marginTop:6,letterSpacing:2,textTransform:"uppercase"}}>— Front of Room —</div>
+            {dragging&&<div style={{textAlign:"center",marginTop:6,fontSize:12,color:"#3b82f6",fontWeight:600}}>🔄 Drop to move or swap</div>}
+          </div>
+
+          {/* Side Panel */}
+          <div style={{width:280,flexShrink:0}}>
+            {(panel==="add"||panel==="addblack")&&!selected&&(
+              <div style={{background:"#fff",borderRadius:12,border:`1px solid ${panel==="addblack"?"#334155":"#e2e8f0"}`,padding:16}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+                  <div style={{fontSize:15,fontWeight:700}}>{panel==="addblack"?"⬛ Add Block":"➕ Add Person"}</div>
+                  <button onClick={()=>setPanel("view")} style={{background:"none",border:"none",fontSize:18,cursor:"pointer",color:"#94a3b8"}}>×</button>
+                </div>
+                {panel==="addblack"&&<div style={{fontSize:12,color:"#64748b",marginBottom:12,background:"#f1f5f9",borderRadius:7,padding:"6px 10px"}}>Blocked/reserved spot. Drag it anywhere after placing.</div>}
+                {(panel==="add"?[["Name","name","text"],["Row (1–?)","row","number"],["Col (1–?)","col","number"]]:[["Label (optional)","name","text"],["Row (1–?)","row","number"],["Col (1–?)","col","number"]]).map(([lbl,k,type])=>(
+                  <div key={k} style={{marginBottom:10}}><div style={lStyle}>{lbl}</div>
+                    <input type={type} value={addForm[k]} onChange={e=>setAddForm(f=>({...f,[k]:e.target.value}))} style={iStyle}/>
+                  </div>
+                ))}
+                {panel==="add"&&(<div style={{marginBottom:12}}><div style={lStyle}>Role</div>
+                  <select value={addForm.role} onChange={e=>setAddForm(f=>({...f,role:e.target.value}))} style={iStyle}>
+                    {ROLES.map(r=><option key={r} value={r}>{r||"— No role —"}</option>)}
+                  </select></div>
+                )}
+                <button onClick={panel==="addblack"?addBlock:addPerson} style={{...btn(panel==="addblack"?"#1e293b":"#3b82f6","#fff"),width:"100%",padding:"9px 0",fontSize:13}}>
+                  {panel==="addblack"?"Place Block":"Add to Map"}
+                </button>
+              </div>
+            )}
+
+            {!selected&&!["add","addblack"].includes(panel)&&(
+              <div style={{background:"#fff",borderRadius:12,border:"1px solid #e2e8f0",padding:20,textAlign:"center",color:"#94a3b8"}}>
+                <div style={{fontSize:32,marginBottom:8}}>👆</div>
+                <div style={{fontSize:13}}>Click a cubicle to manage it</div>
+                <div style={{fontSize:12,marginTop:6,color:"#cbd5e1"}}>Search by name, role, model, SN, or tag</div>
+              </div>
+            )}
+
+            {selected&&(
+              <div style={{background:"#fff",borderRadius:12,border:"1px solid #e2e8f0",padding:16}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
+                  <div>
+                    <div style={{fontSize:17,fontWeight:700,color:"#1e293b"}}>{selected.name}</div>
+                    {selected.role&&selected.role!=="__block__"&&<span style={{fontSize:11,color:rs.text,background:rs.bg,border:`1px solid ${rs.border}`,borderRadius:5,padding:"2px 7px",fontWeight:700}}>{selected.role}</span>}
+                    <div style={{fontSize:11,color:"#94a3b8",marginTop:4}}>Row {selected.row}, Col {selected.col}</div>
+                  </div>
+                  <button onClick={()=>setSelected(null)} style={{background:"none",border:"none",fontSize:18,cursor:"pointer",color:"#94a3b8"}}>×</button>
+                </div>
+
+                {selected.role!=="__block__"&&(
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:5,marginBottom:12}}>
+                    {[["view","👁 View"],["devices","🖥 Devices"],["person","✏️ Person"]].map(([p,label])=>(
+                      <button key={p} onClick={()=>{setPanel(p);if(p==="devices")setDevicesForm((selected.devices||[]).map(d=>({...d})));if(p==="person")setPersonForm({name:selected.name,role:selected.role});}}
+                        style={{...btn(panel===p?"#3b82f6":"#f1f5f9",panel===p?"#fff":"#475569"),padding:"7px 0",fontSize:11}}>{label}</button>
+                    ))}
+                  </div>
+                )}
+
+                {(panel==="view"||selected.role==="__block__")&&(
+                  <>
+                    {selected.role!=="__block__"&&(
+                      <>
+                        <div style={{fontSize:12,fontWeight:600,color:"#475569",marginBottom:8}}>Devices ({(selected.devices||[]).length})</div>
+                        <DeviceList devices={selected.devices} expanded={expandedDevices} setExpanded={setExpandedDevices} onRemove={removeDeviceInline}/>
+                        {selected.notes&&<div style={{background:"#fefce8",border:"1px solid #fde047",borderRadius:7,padding:"6px 10px",fontSize:12,color:"#713f12",marginBottom:10}}>📝 {selected.notes}</div>}
+                      </>
+                    )}
+                    <button onClick={()=>setConfirm({id:selected.id,name:selected.name||"Block"})} style={{...btn("#fef2f2","#dc2626"),width:"100%",padding:"8px 0",fontSize:12,border:"1px solid #fecaca",marginTop:4}}>
+                      {selected.role==="__block__"?"🗑️ Remove Block":"⚠️ Remove / Move to WFH"}
+                    </button>
+                  </>
+                )}
+
+                {panel==="devices"&&devicesForm&&selected.role!=="__block__"&&(
+                  <>
+                    <div style={{fontSize:12,fontWeight:600,color:"#475569",marginBottom:8}}>Edit Devices</div>
+                    <DeviceEditList form={devicesForm} setForm={setDevicesForm}/>
+                    <div style={{display:"flex",gap:6}}><button onClick={()=>setPanel("view")} style={{...btn("#f1f5f9","#475569"),flex:1}}>Cancel</button><button onClick={saveDevices} style={{...btn("#22c55e","#fff"),flex:1}}>Save</button></div>
+                  </>
+                )}
+
+                {panel==="person"&&personForm&&selected.role!=="__block__"&&(
+                  <>
+                    <div style={{fontSize:12,fontWeight:600,color:"#475569",marginBottom:8}}>Edit Person</div>
+                    <div style={{marginBottom:10}}><div style={lStyle}>Name</div><input value={personForm.name} onChange={e=>setPersonForm(f=>({...f,name:e.target.value}))} style={iStyle}/></div>
+                    <div style={{marginBottom:12}}><div style={lStyle}>Role</div>
+                      <select value={personForm.role} onChange={e=>setPersonForm(f=>({...f,role:e.target.value}))} style={iStyle}>
+                        {ROLES.map(r=><option key={r} value={r}>{r||"— No role —"}</option>)}
+                      </select>
+                    </div>
+                    <div style={{marginBottom:12}}><div style={lStyle}>Notes</div>
+                      <textarea value={selected.notes} onChange={e=>updateNotes(e.target.value)} rows={2} placeholder="Any notes..." style={{...iStyle,resize:"vertical"}}/>
+                    </div>
+                    <div style={{display:"flex",gap:6}}><button onClick={()=>setPanel("view")} style={{...btn("#f1f5f9","#475569"),flex:1}}>Cancel</button><button onClick={savePerson} style={{...btn("#22c55e","#fff"),flex:1}}>Save</button></div>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>

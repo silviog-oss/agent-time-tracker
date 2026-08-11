@@ -385,6 +385,10 @@ tbody tr.clickable:hover { background: #FAFAFB; }
 .te-planned { width: 78px; }
 .te-desc:focus, .te-field input:focus { outline: none; border-color: var(--orange); box-shadow: 0 0 0 3px var(--orange-soft); }
 
+/* office map embed */
+.map-wrap { width: 100%; }
+.map-frame { width: 100%; height: calc(100vh - 150px); min-height: 520px; border: 1px solid var(--border); border-radius: var(--radius); background: #fff; }
+
 /* instances (management-only) */
 .inst-list { display: flex; flex-direction: column; gap: 8px; margin: 8px 0 14px; }
 .inst-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
