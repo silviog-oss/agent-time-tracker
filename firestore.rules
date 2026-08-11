@@ -17,7 +17,7 @@ service cloud.firestore {
     }
     // Always-admins by email. KEEP IN SYNC with SUPER_ADMIN_EMAILS in config.js.
     function isSuperAdmin() {
-      return isSignedIn() && request.auth.token.email in ['silvio.g@incfile.com'];
+      return isSignedIn() && request.auth.token.email in ['silvio.g@incfile.com', 'marcos.c@incfile.com'];
     }
     function isAdmin() {
       return isSuperAdmin()
@@ -89,6 +89,11 @@ service cloud.firestore {
     // ---- Instances (management-only notes; agents have NO access) ----
     match /instances/{id} {
       allow read, create, update, delete: if isAdmin();
+    }
+
+    // ---- Shared settings (e.g. the office map) — any signed-in user ----
+    match /settings/{id} {
+      allow read, write: if isSignedIn();
     }
   }
 }

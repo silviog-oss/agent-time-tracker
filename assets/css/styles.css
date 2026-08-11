@@ -400,6 +400,9 @@ tbody tr.clickable:hover { background: #FAFAFB; }
 .inst-form select, .inst-form input[type="time"] { height: 38px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); padding: 0 8px; font-family: inherit; font-size: 14px; color: var(--ink); }
 .inst-note-input { flex: 1 1 200px; min-width: 160px; height: 38px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); padding: 0 10px; font-family: inherit; font-size: 14px; color: var(--ink); }
 .inst-form select:focus, .inst-form input:focus { outline: none; border-color: var(--orange); box-shadow: 0 0 0 3px var(--orange-soft); }
+.inst-divider { height: 1px; background: var(--border); margin: 14px 0 12px; }
+.inst-row .ie-reason:focus, .inst-row input:focus { outline: none; border-color: var(--orange); box-shadow: 0 0 0 3px var(--orange-soft); }
+.inst-row { align-items: flex-end; }
 
 /* toast */
 .toast {

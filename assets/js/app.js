@@ -12,7 +12,7 @@ import {
   query, where, serverTimestamp, Timestamp, onSnapshot
 } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
-import { firebaseConfig, ALLOWED_EMAIL_DOMAIN, SUPER_ADMIN_EMAILS } from "./config.js?v=11";
+import { firebaseConfig, ALLOWED_EMAIL_DOMAIN, SUPER_ADMIN_EMAILS } from "./config.js?v=12";
 
 const isSuperAdminEmail = (email) =>
   (SUPER_ADMIN_EMAILS || []).map((e) => e.toLowerCase()).includes((email || "").toLowerCase());
@@ -34,7 +34,7 @@ const C = {
 };
 
 // ---------- App meta ----------
-const APP_VERSION = "v2.4.1";
+const APP_VERSION = "v2.5.0";
 
 // ---------- Global state ----------
 let ME = null;              // { uid, name, email, photo, role }
@@ -440,6 +440,22 @@ async function addInstance(uid, userName, { fromHHMM, toHHMM, reason, dayKey }) 
   });
 }
 async function deleteInstance(id) { await deleteDoc(doc(C.instances, id)); }
+async function updateInstance(id, { fromHHMM, toHHMM, reason, dayKey }) {
+  const mk = (hhmm) => {
+    const [h, m] = hhmm.split(":").map(Number);
+    const [y, mo, d] = dayKey.split("-").map(Number);
+    return new Date(y, mo - 1, d, h, m, 0, 0);
+  };
+  const from = mk(fromHHMM), to = mk(toHHMM);
+  if (to.getTime() < from.getTime()) { toast("End can't be before start.", true); return false; }
+  await updateDoc(doc(C.instances, id), {
+    reason: (reason || "").trim(),
+    from: Timestamp.fromDate(from),
+    to: Timestamp.fromDate(to),
+    at: Timestamp.fromDate(from),
+  });
+  return true;
+}
 
 // Admin-only: edit a whole task (agents can't — enforced in rules).
 async function adminSaveActivity(id, { desc, startHHMM, endHHMM, planned }, dayKey) {
@@ -490,7 +506,7 @@ function render() {
 
 // Office map — self-contained page embedded in an iframe (visible to everyone)
 function viewMap() {
-  viewEl.innerHTML = `<div class="map-wrap"><iframe class="map-frame" src="assets/office-map.html?v=11" title="Office Map"></iframe></div>`;
+  viewEl.innerHTML = `<div class="map-wrap"><iframe class="map-frame" src="assets/office-map.html?v=12" title="Office Map"></iframe></div>`;
 }
 
 // ============================================================
@@ -1018,12 +1034,16 @@ async function openAgentDetail(uid, u) {
         <div class="inst-list">
           ${instances.length ? instances.map((i) => `
             <div class="inst-row" data-id="${i.id}">
-              <span class="inst-time num">${fmtClock(ms(i.from || i.at))}–${i.to ? fmtClock(ms(i.to)) : "—"}</span>
-              <span class="inst-note">${esc(i.reason || i.note || i.type || "")}</span>
+              <label class="te-field"><span>From</span><input class="ie-from" type="time" value="${hhmm(ms(i.from || i.at))}" /></label>
+              <label class="te-field"><span>To</span><input class="ie-to" type="time" value="${i.to ? hhmm(ms(i.to)) : hhmm(ms(i.from || i.at))}" /></label>
+              <input class="ie-reason inst-note-input" type="text" value="${esc(i.reason || i.note || i.type || "")}" placeholder="Reason" />
               <span class="inst-by">by ${esc(i.created_by_name || "")}</span>
+              <button class="btn btn-outline btn-sm ie-save">Save</button>
               <button class="btn btn-danger btn-sm inst-del">Delete</button>
             </div>`).join("") : `<div class="em" style="padding:6px 0">No instances logged for this day.</div>`}
         </div>
+        <div class="inst-divider"></div>
+        <div class="section-title" style="font-size:11px">Add instance</div>
         <div class="inst-form">
           <label class="te-field"><span>From</span><input id="inst-from" type="time" value="${hhmm(Date.now())}" /></label>
           <label class="te-field"><span>To</span><input id="inst-to" type="time" value="${hhmm(Date.now())}" /></label>
@@ -1083,6 +1103,16 @@ async function openAgentDetail(uid, u) {
       draw(dayKey);
     }));
     viewEl.querySelectorAll(".inst-row").forEach((row) => {
+      const id = row.dataset.id;
+      row.querySelector(".ie-save").addEventListener("click", guard(async () => {
+        const fromHHMM = row.querySelector(".ie-from").value;
+        const toHHMM = row.querySelector(".ie-to").value;
+        const reason = row.querySelector(".ie-reason").value.trim();
+        if (!fromHHMM || !toHHMM) { toast("Set both times.", true); return; }
+        if (!reason) { toast("Add a reason.", true); return; }
+        const ok = await updateInstance(id, { fromHHMM, toHHMM, reason, dayKey });
+        if (ok) { toast("Instance updated"); draw(dayKey); }
+      }));
       row.querySelector(".inst-del").addEventListener("click", guard(async () => {
         await deleteInstance(row.dataset.id);
         toast("Instance deleted");

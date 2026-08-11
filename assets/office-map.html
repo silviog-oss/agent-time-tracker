@@ -21,6 +21,28 @@
 </head>
 <body>
 <div id="root"></div>
+<script type="module">
+  import { initializeApp, getApps } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+  import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+  import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+  import { firebaseConfig } from "./js/config.js";
+  const app = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
+  const db = getFirestore(app);
+  const auth = getAuth(app);
+  const ref = doc(db, "settings", "office_map");
+  let resolveAuth;
+  const authReady = new Promise((r) => { resolveAuth = r; });
+  onAuthStateChanged(auth, (u) => resolveAuth(u));
+  // Shared, everyone-can-edit map stored in one Firestore doc.
+  window.ShiftMap = {
+    authReady,
+    subscribe(cb) {
+      return onSnapshot(ref, (snap) => cb(snap.exists() ? snap.data() : null),
+        (err) => console.warn("map sync error:", err.message));
+    },
+    async save(payload) { await setDoc(ref, { ...payload, updated_at: Date.now() }); return true; },
+  };
+</script>
 <script type="text/babel">
 const { useState, useRef, useCallback, useEffect } = React;
 
@@ -105,16 +127,13 @@ function matches(c,q){
 }
 
 function App(){
-  const loadInitial=()=>{
-    try{const s=localStorage.getItem(STORAGE_KEY);if(s){const p=JSON.parse(s);if(p.state)return{history:[p.state],nextId:p.nextId||100,savedAt:p.savedAt||null};}}catch{}
-    return{history:[defaultState],nextId:100,savedAt:null};
-  };
-  const init=loadInitial();
-  const [history,setHistory]=useState(init.history);
+  const [history,setHistory]=useState([defaultState]);
   const [histPtr,setHistPtr]=useState(0);
-  const [nextId,setNextId]=useState(init.nextId);
-  const [savedAt,setSavedAt]=useState(init.savedAt);
+  const [nextId,setNextId]=useState(100);
+  const [savedAt,setSavedAt]=useState(null);
   const [hasUnsaved,setHasUnsaved]=useState(false);
+  const hasUnsavedRef=useRef(false);
+  useEffect(()=>{hasUnsavedRef.current=hasUnsaved;},[hasUnsaved]);
   const [selected,setSelected]=useState(null);
   const [panel,setPanel]=useState("view");
   const [search,setSearch]=useState("");
@@ -136,6 +155,21 @@ function App(){
   const [returnCoords,setReturnCoords]=useState({});
   const dragItem=useRef(null);
 
+  // Live shared map: subscribe once; apply remote unless we have local unsaved edits.
+  useEffect(()=>{
+    if(!window.ShiftMap) return;
+    let unsub=()=>{};
+    window.ShiftMap.authReady.then(()=>{
+      unsub=window.ShiftMap.subscribe((data)=>{
+        if(!data||!data.state){ window.ShiftMap.save({state:defaultState,nextId:100}).catch(()=>{}); return; }
+        if(hasUnsavedRef.current) return;
+        setHistory([data.state]); setHistPtr(0);
+        setNextId(data.nextId||100); setSavedAt(data.updated_at||Date.now()); setHasUnsaved(false);
+      });
+    });
+    return ()=>{try{unsub();}catch{}};
+  },[]);
+
   const state=history[histPtr];
   const {cubicles,wfh,rows:ROWS,cols:COLS}=state;
   const canUndo=histPtr>0,canRedo=histPtr<history.length-1;
@@ -148,11 +182,10 @@ function App(){
   },[histPtr,state]);
 
   function saveMap(){
-    try{
-      localStorage.setItem(STORAGE_KEY,JSON.stringify({state:history[histPtr],nextId,savedAt:new Date().toISOString()}));
-      const now=new Date().toISOString();
-      setSavedAt(now);setHasUnsaved(false);showToast("Saved!","success");
-    }catch{showToast("❌ Save failed","error");}
+    if(!window.ShiftMap){showToast("Offline — can't save","error");return;}
+    window.ShiftMap.save({state:history[histPtr],nextId})
+      .then(()=>{setSavedAt(Date.now());setHasUnsaved(false);showToast("Saved for everyone","success");})
+      .catch(()=>showToast("Save failed","error"));
   }
 
   function undo(){if(!canUndo)return;setHistPtr(p=>p-1);setSelected(null);setHasUnsaved(true);showToast("↩️ Undone!");}
