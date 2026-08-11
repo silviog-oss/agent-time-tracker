@@ -32,7 +32,7 @@
       </button>
       <p class="login-note">Use your work Google account. New accounts start as agents.</p>
     </div>
-    <footer class="login-footer">Shift · internal tool · <span class="app-version">v2.5.0</span></footer>
+    <footer class="login-footer">Shift · internal tool · <span class="app-version">v3.0.0</span></footer>
   </div>
 
   <!-- ============ APP SHELL ============ -->
@@ -64,10 +64,14 @@
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
         </button>
         <h2 id="view-title" class="view-title">Dashboard</h2>
+        <button id="bell-btn" class="icon-btn bell-btn hidden" title="IT notifications" aria-label="IT notifications">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+          <span id="bell-count" class="bell-count hidden">0</span>
+        </button>
         <div class="topbar-clock" id="topbar-clock"></div>
       </header>
       <div id="view" class="view"><!-- active view injected here --></div>
-      <footer class="app-footer"><span class="app-version">v2.5.0</span></footer>
+      <footer class="app-footer"><span class="app-version">v3.0.0</span></footer>
     </main>
 
     <div id="scrim" class="scrim"></div>
@@ -76,6 +80,6 @@
   <!-- Toast -->
   <div id="toast" class="toast hidden"></div>
 
-  <script type="module" src="assets/js/app.js?v=12"></script>
+  <script type="module" src="assets/js/app.js?v=14"></script>
 </body>
 </html>

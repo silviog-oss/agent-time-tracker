@@ -12,7 +12,7 @@ import {
   query, where, serverTimestamp, Timestamp, onSnapshot
 } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
-import { firebaseConfig, ALLOWED_EMAIL_DOMAIN, SUPER_ADMIN_EMAILS } from "./config.js?v=12";
+import { firebaseConfig, ALLOWED_EMAIL_DOMAIN, SUPER_ADMIN_EMAILS } from "./config.js?v=14";
 
 const isSuperAdminEmail = (email) =>
   (SUPER_ADMIN_EMAILS || []).map((e) => e.toLowerCase()).includes((email || "").toLowerCase());
@@ -31,17 +31,51 @@ const C = {
   tasks:      collection(db, "tasks"),
   instances:  collection(db, "instances"),
   settings:   collection(db, "settings"),
+  it_requests: collection(db, "it_requests"),
+  shopping:   collection(db, "shopping"),
 };
 
 // ---------- App meta ----------
-const APP_VERSION = "v2.5.0";
+const APP_VERSION = "v3.0.0";
 
 // ---------- Global state ----------
 let ME = null;              // { uid, name, email, photo, role }
 let ROUTE = "dashboard";    // active view id
-let PREVIEW_AGENT = false;  // admin previewing the agent dashboard
+let PREVIEW_ROLE = null;   // super admin previewing another role's view
 let tickHandler = null;     // function called every second by the global interval
 let unsubscribers = [];     // onSnapshot cleanups for the current view
+let bellUnsub = null;       // IT notifications listener
+let pendingHighlight = null;// name to highlight on the map after accepting a request
+
+// ---------- Roles & capabilities ----------
+const ROLE_LABELS = {
+  super_admin: "Super admin", it_admin: "IT admin", it_agent: "IT agent",
+  supervisor: "Supervisor", agent: "Agent", admin: "IT admin",
+};
+const ROLE_OPTIONS = ["agent", "supervisor", "it_agent", "it_admin", "super_admin"];
+function baseRole() {
+  if (ME && isSuperAdminEmail(ME.email)) return "super_admin";
+  return (ME && ME.role) || "agent";
+}
+function effRole() { return PREVIEW_ROLE || baseRole(); }
+const CAP = {
+  adminDash:      ["super_admin", "it_admin", "admin", "supervisor"],
+  management:     ["super_admin", "it_admin", "admin"],
+  mapEdit:        ["super_admin", "it_admin", "admin"],
+  seeTasks:       ["super_admin", "it_admin", "admin", "supervisor"],
+  addTasks:       ["super_admin", "it_admin", "admin", "supervisor"],
+  itStaff:        ["super_admin", "it_admin", "admin", "it_agent"],
+  createReq:      ["super_admin", "it_admin", "admin", "it_agent", "supervisor"],
+  shoppingCreate: ["super_admin", "it_admin", "admin", "supervisor"],
+  shoppingView:   ["super_admin", "it_admin", "admin", "it_agent"],
+  inventory:      ["super_admin", "it_admin", "admin", "it_agent"],
+  instances:      ["super_admin", "it_admin", "admin"],
+  deleteUsers:    ["super_admin"],
+  roleManage:     ["super_admin"],
+  settings:       ["super_admin"],
+  viewAs:         ["super_admin"],
+};
+function can(cap) { const a = CAP[cap]; return !!a && a.includes(effRole()); }
 
 // ---------- Element refs ----------
 const $ = (id) => document.getElementById(id);
@@ -124,6 +158,8 @@ onAuthStateChanged(auth, async (user) => {
   clearView();
   if (!user) {
     ME = null;
+    if (bellUnsub) { try { bellUnsub(); } catch (_) {} bellUnsub = null; }
+    $("bell-btn") && $("bell-btn").classList.add("hidden");
     splash.classList.add("hidden");
     appEl.classList.add("hidden");
     loginScr.classList.remove("hidden");
@@ -144,8 +180,31 @@ onAuthStateChanged(auth, async (user) => {
   appEl.classList.remove("hidden");
   renderShell();
   renderVersionFooters();
+  startBellWatch();
   go("dashboard");
 });
+
+// ---------- IT notification bell ----------
+function startBellWatch() {
+  const btn = $("bell-btn");
+  if (bellUnsub) { try { bellUnsub(); } catch (_) {} bellUnsub = null; }
+  const staff = can("itStaff");
+  const creator = can("createReq");
+  if (!staff && !creator) { btn.classList.add("hidden"); return; }
+  btn.classList.remove("hidden");
+  btn.onclick = () => go("it");
+  bellUnsub = onSnapshot(C.it_requests, (snap) => {
+    let n = 0;
+    snap.forEach((d) => {
+      const r = d.data();
+      if (staff && r.status === "open") n++;
+      else if (!staff && r.created_by === ME.uid && (r.status === "accepted" || r.status === "done")) n++;
+    });
+    const c = $("bell-count");
+    if (n > 0) { c.textContent = n > 9 ? "9+" : String(n); c.classList.remove("hidden"); }
+    else c.classList.add("hidden");
+  }, (err) => console.warn("bell:", err.message));
+}
 
 // Create or read the user's profile doc.
 async function bootstrapUser(user) {
@@ -166,8 +225,8 @@ async function bootstrapUser(user) {
     // configured super admin, promote right after — allowed because the rules
     // grant them admin by email.
     if (isSuperAdminEmail(user.email)) {
-      await updateDoc(ref, { role: "admin" });
-      data.role = "admin";
+      await updateDoc(ref, { role: "super_admin" });
+      data.role = "super_admin";
     }
     return { ...data };
   }
@@ -176,8 +235,8 @@ async function bootstrapUser(user) {
   const patch = {};
   if (d.name !== user.displayName && user.displayName) patch.name = user.displayName;
   if (d.profile_picture !== user.photoURL && user.photoURL) patch.profile_picture = user.photoURL;
-  // Auto-promote configured super admins (rules also grant them admin by email).
-  if (isSuperAdminEmail(user.email) && d.role !== "admin") patch.role = "admin";
+  // Auto-promote configured super admins (rules also grant them by email).
+  if (isSuperAdminEmail(user.email) && d.role !== "super_admin") patch.role = "super_admin";
   if (Object.keys(patch).length) await updateDoc(ref, patch);
   return { ...d, ...patch };
 }
@@ -185,28 +244,33 @@ async function bootstrapUser(user) {
 // ============================================================
 //  App shell + navigation
 // ============================================================
-const NAV = {
-  agent: [
-    ["dashboard", "Dashboard", icon("grid")],
-    ["map", "Map", icon("map")],
-  ],
-  admin: [
-    ["dashboard", "Dashboard", icon("grid")],
-    ["agents", "Agents", icon("users")],
-    ["tasks", "Tasks", icon("check")],
-    ["activity", "Activity", icon("list")],
-    ["reports", "Time Reports", icon("chart")],
-    ["map", "Map", icon("map")],
-    ["settings", "Settings", icon("cog")],
-  ],
-};
+function navFor(role) {
+  const D = ["dashboard", "Dashboard", icon("grid")];
+  const MAP = ["map", "Map", icon("map")];
+  const IT = ["it", "IT Service", icon("bolt")];
+  const INV = ["inventory", "Inventory", icon("box")];
+  const TASKS = ["tasks", "Tasks", icon("check")];
+  const AGENTS = ["agents", "Agents", icon("users")];
+  const ACT = ["activity", "Activity", icon("list")];
+  const REP = ["reports", "Time Reports", icon("chart")];
+  const SET = ["settings", "Settings", icon("cog")];
+  switch (role) {
+    case "agent":       return [D, MAP];
+    case "it_agent":    return [D, IT, INV, MAP];
+    case "supervisor":  return [D, TASKS, IT, MAP];
+    case "it_admin":
+    case "admin":       return [D, AGENTS, TASKS, ACT, REP, IT, INV, MAP];
+    case "super_admin": return [D, AGENTS, TASKS, ACT, REP, IT, INV, MAP, SET];
+    default:            return [D, MAP];
+  }
+}
 
 function renderShell() {
   $("side-avatar").src = ME.profile_picture || fallbackAvatar(ME.name);
   $("side-avatar").onerror = () => { $("side-avatar").src = fallbackAvatar(ME.name); };
   $("side-name").textContent = ME.name;
-  $("side-role").textContent = ME.role;
-  const items = NAV[ME.role] || NAV.agent;
+  $("side-role").textContent = ROLE_LABELS[effRole()] || effRole();
+  const items = navFor(effRole());
   navEl.innerHTML = items.map(([id, label, ic]) =>
     `<button class="nav-item" data-route="${id}">${ic}<span>${label}</span></button>`
   ).join("");
@@ -485,14 +549,16 @@ async function adminSaveActivity(id, { desc, startHHMM, endHHMM, planned }, dayK
 const TITLES = {
   dashboard: "Dashboard", "my-tasks": "My Tasks", "my-activity": "My Activity",
   "my-time": "My Time", profile: "Profile", agents: "Agents", tasks: "Tasks",
-  activity: "Activity", reports: "Time Reports", map: "Office Map", settings: "Settings",
+  activity: "Activity", reports: "Time Reports", map: "Office Map",
+  it: "IT Service", inventory: "Inventory", settings: "Settings",
 };
 function render() {
   clearView();
   titleEl.textContent = TITLES[ROUTE] || "Dashboard";
-  const admin = ME.role === "admin";
-  if (ROUTE === "map") return viewMap();
-  if (ROUTE === "dashboard") return (admin && !PREVIEW_AGENT) ? viewAdminDashboard() : viewAgentDashboard();
+  if (ROUTE === "map") return viewMap(pendingHighlight);
+  if (ROUTE === "it") return viewITService();
+  if (ROUTE === "inventory") return viewInventory();
+  if (ROUTE === "dashboard") return can("adminDash") ? viewAdminDashboard() : viewAgentDashboard();
   if (ROUTE === "my-tasks") return viewMyTasks();
   if (ROUTE === "my-activity") return viewMyActivity();
   if (ROUTE === "my-time") return viewMyTime();
@@ -505,14 +571,225 @@ function render() {
 }
 
 // Office map — self-contained page embedded in an iframe (visible to everyone)
-function viewMap() {
-  viewEl.innerHTML = `<div class="map-wrap"><iframe class="map-frame" src="assets/office-map.html?v=12" title="Office Map"></iframe></div>`;
+function viewMap(highlight) {
+  const h = highlight ? "&highlight=" + encodeURIComponent(highlight) : "";
+  pendingHighlight = null;
+  viewEl.innerHTML = `<div class="map-wrap"><iframe class="map-frame" src="assets/office-map.html?v=14${h}" title="Office Map"></iframe></div>`;
+}
+
+// IT Service board + Inventory placeholder are defined lower in the file.
+
+// ============================================================
+//  IT SERVICE — requests + shopping list
+// ============================================================
+const IT_CATEGORIES = ["Internet issue", "Slack issue", "Tailscale issue", "Audio issue", "Mouse issue", "Keyboard issue", "Computer issue", "Purchase request", "Other"];
+
+async function viewITService() {
+  viewEl.innerHTML = skeleton();
+  const staff = can("itStaff");
+  const [reqs, shop, users] = await Promise.all([
+    getDocsArr(C.it_requests).catch(() => []),
+    can("shoppingView") || can("shoppingCreate") ? getDocsArr(C.shopping).catch(() => []) : Promise.resolve([]),
+    getDocsArr(C.users).catch(() => []),
+  ]);
+  reqs.sort((a, b) => (ms(b.created_at) || 0) - (ms(a.created_at) || 0));
+  shop.sort((a, b) => (ms(b.created_at) || 0) - (ms(a.created_at) || 0));
+
+  // which requests does this person see?
+  const myReqs = staff ? reqs : reqs.filter((r) => r.created_by === ME.uid);
+  const openReqs = myReqs.filter((r) => r.status !== "done");
+  const doneReqs = myReqs.filter((r) => r.status === "done");
+
+  const statusBadge = (s) => {
+    const map = { open: ["out", "Open"], accepted: ["lunch", "Accepted"], done: ["working", "Resolved"] };
+    const [cls, label] = map[s] || map.open;
+    return `<span class="badge ${cls}"><span class="dot ${cls}"></span>${label}</span>`;
+  };
+
+  const reqCard = (r) => `
+    <div class="it-card" data-id="${r.id}">
+      <div class="it-head">
+        <div><span class="it-cat">${esc(r.category || "Request")}</span> ${statusBadge(r.status)}</div>
+        <span class="em">${fmtClock(ms(r.created_at))} · ${fmtDate(r.date || dateKeyFromMs(ms(r.created_at) || Date.now()))}</span>
+      </div>
+      <div class="it-for">Needs help: <b>${esc(r.for_name || "—")}</b> · from ${esc(r.created_by_name || "")}</div>
+      ${r.details ? `<p class="it-details">${esc(r.details)}</p>` : ""}
+      ${r.status !== "open" ? `<div class="it-meta">Accepted by <b>${esc(r.accepted_by_name || "—")}</b></div>` : ""}
+      ${r.status === "done" ? `<div class="it-resolution">Resolved: ${esc(r.resolution || "—")}</div>` : ""}
+      <div class="it-actions">
+        ${staff && r.status === "open" ? `<button class="btn btn-primary btn-sm" data-accept="${r.id}" data-for="${esc(r.for_name || "")}">Accept</button>` : ""}
+        ${staff && r.status === "accepted" && r.accepted_by === ME.uid ? `<button class="btn btn-dark btn-sm" data-resolve="${r.id}">Mark done</button>` : ""}
+        ${staff && r.status !== "open" && r.for_name ? `<button class="btn btn-outline btn-sm" data-locate="${esc(r.for_name)}">Show on map</button>` : ""}
+        ${(can("management") || r.created_by === ME.uid) && r.status !== "done" ? `<button class="btn btn-outline btn-sm" data-cancel="${r.id}">Cancel</button>` : ""}
+      </div>
+    </div>`;
+
+  const shoppingSection = can("shoppingView") ? `
+    <div class="card card-pad mt-18">
+      <div class="section-title">Shopping list (IT only)</div>
+      ${shop.filter((s) => s.status !== "done").length || shop.filter((s) => s.status === "done").length
+        ? `<div class="it-list">
+            ${shop.filter((s) => s.status !== "done").map(shopRow).join("")}
+            ${shop.filter((s) => s.status === "done").map(shopRow).join("")}
+          </div>`
+        : `<div class="em" style="padding:6px 0">No shopping items.</div>`}
+    </div>` : "";
+
+  function shopRow(s) {
+    return `<div class="it-shop-row ${s.status === "done" ? "done" : ""}" data-id="${s.id}">
+      <div class="it-shop-main">
+        <div class="nm">${esc(s.item_name)} ${s.status === "done" ? '<span class="badge working">bought</span>' : ""}</div>
+        <div class="em">${esc(s.reason || "")}${s.amazon_link ? ` · <a href="${esc(s.amazon_link)}" target="_blank" rel="noopener">link</a>` : ""} · from ${esc(s.created_by_name || "")}</div>
+      </div>
+      ${can("shoppingView") && s.status !== "done" ? `<button class="btn btn-dark btn-sm" data-shopdone="${s.id}">Mark bought</button>` : ""}
+    </div>`;
+  }
+
+  viewEl.innerHTML = `
+    <div class="page-head">
+      <div class="section-title" style="margin:0">${staff ? "IT requests" : "My IT requests"}</div>
+      <div class="it-topbtns">
+        ${can("createReq") ? `<button class="btn btn-primary btn-sm" id="new-req">New IT request</button>` : ""}
+        ${can("shoppingCreate") ? `<button class="btn btn-outline btn-sm" id="new-shop">Request shopping item</button>` : ""}
+      </div>
+    </div>
+
+    <div class="it-list">
+      ${openReqs.length ? openReqs.map(reqCard).join("") : `<div class="card"><div class="empty"><strong>No open requests</strong>${can("createReq") ? "Create one with the button above." : "You're all caught up."}</div></div>`}
+    </div>
+    ${doneReqs.length ? `<div class="section-title mt-18" style="margin-top:22px">Resolved</div><div class="it-list">${doneReqs.slice(0, 20).map(reqCard).join("")}</div>` : ""}
+
+    ${shoppingSection}`;
+
+  // create request
+  $("new-req") && $("new-req").addEventListener("click", () => openNewRequestModal(users));
+  $("new-shop") && $("new-shop").addEventListener("click", () => openShoppingModal());
+
+  // accept / resolve / locate / cancel
+  viewEl.querySelectorAll("[data-accept]").forEach((b) => b.addEventListener("click", guard(async () => {
+    await updateDoc(doc(C.it_requests, b.dataset.accept), {
+      status: "accepted", accepted_by: ME.uid, accepted_by_name: ME.name, accepted_at: Timestamp.now(),
+    });
+    toast("Request accepted");
+    if (b.dataset.for) { pendingHighlight = b.dataset.for; go("map"); } else viewITService();
+  })));
+  viewEl.querySelectorAll("[data-resolve]").forEach((b) => b.addEventListener("click", () => openResolveModal(b.dataset.resolve)));
+  viewEl.querySelectorAll("[data-locate]").forEach((b) => b.addEventListener("click", () => { pendingHighlight = b.dataset.locate; go("map"); }));
+  viewEl.querySelectorAll("[data-cancel]").forEach((b) => b.addEventListener("click", guard(async () => {
+    await deleteDoc(doc(C.it_requests, b.dataset.cancel));
+    toast("Request cancelled");
+    viewITService();
+  })));
+  viewEl.querySelectorAll("[data-shopdone]").forEach((b) => b.addEventListener("click", guard(async () => {
+    await updateDoc(doc(C.shopping, b.dataset.shopdone), { status: "done", done_by: ME.uid, done_by_name: ME.name, done_at: Timestamp.now() });
+    toast("Marked as bought");
+    viewITService();
+  })));
+}
+
+function openNewRequestModal(users) {
+  const people = (users || []).slice().sort((a, b) => a.name.localeCompare(b.name));
+  openModal(`
+    <h3 class="modal-title">New IT request</h3>
+    <label class="field-label">Who needs help?</label>
+    <input id="req-for" class="modal-input" list="req-people" placeholder="Type a name" />
+    <datalist id="req-people">${people.map((p) => `<option value="${esc(p.name)}">`).join("")}</datalist>
+    <label class="field-label" style="margin-top:12px">Category</label>
+    <select id="req-cat" class="modal-input">${IT_CATEGORIES.map((c) => `<option>${c}</option>`).join("")}</select>
+    <label class="field-label" style="margin-top:12px">What's going on?</label>
+    <textarea id="req-details" class="modal-textarea" placeholder="Describe the issue"></textarea>
+    <div class="modal-actions">
+      <button class="btn btn-outline btn-sm" id="req-cancel">Cancel</button>
+      <button class="btn btn-primary btn-sm" id="req-send">Send request</button>
+    </div>
+  `);
+  document.getElementById("req-cancel").addEventListener("click", closeModal);
+  document.getElementById("req-send").addEventListener("click", guard(async () => {
+    const for_name = document.getElementById("req-for").value.trim();
+    const category = document.getElementById("req-cat").value;
+    const details = document.getElementById("req-details").value.trim();
+    if (!for_name) { toast("Who needs help?", true); return; }
+    await addDoc(C.it_requests, {
+      for_name, category, details, status: "open",
+      created_by: ME.uid, created_by_name: ME.name, created_by_email: ME.email,
+      accepted_by: null, accepted_by_name: null, resolution: "",
+      date: todayKey(), created_at: Timestamp.now(),
+    });
+    closeModal();
+    toast("Request sent to IT");
+    viewITService();
+  }));
+  setTimeout(() => document.getElementById("req-for")?.focus(), 40);
+}
+
+function openResolveModal(id) {
+  openModal(`
+    <h3 class="modal-title">Mark as done</h3>
+    <label class="field-label">How was it solved?</label>
+    <textarea id="res-note" class="modal-textarea" placeholder="Short explanation for the requester"></textarea>
+    <div class="modal-actions">
+      <button class="btn btn-outline btn-sm" id="res-cancel">Cancel</button>
+      <button class="btn btn-primary btn-sm" id="res-save">Mark done</button>
+    </div>
+  `);
+  document.getElementById("res-cancel").addEventListener("click", closeModal);
+  document.getElementById("res-save").addEventListener("click", guard(async () => {
+    const resolution = document.getElementById("res-note").value.trim();
+    await updateDoc(doc(C.it_requests, id), { status: "done", resolution, done_at: Timestamp.now() });
+    closeModal();
+    toast("Marked done");
+    viewITService();
+  }));
+}
+
+function openShoppingModal() {
+  openModal(`
+    <h3 class="modal-title">Request a shopping item</h3>
+    <label class="field-label">Item name</label>
+    <input id="shop-name" class="modal-input" placeholder="e.g. Logitech M185 mouse" />
+    <label class="field-label" style="margin-top:12px">Amazon link</label>
+    <input id="shop-link" class="modal-input" placeholder="https://amazon.com.mx/..." />
+    <label class="field-label" style="margin-top:12px">Why is it needed?</label>
+    <textarea id="shop-reason" class="modal-textarea" placeholder="Reason"></textarea>
+    <div class="modal-actions">
+      <button class="btn btn-outline btn-sm" id="shop-cancel">Cancel</button>
+      <button class="btn btn-primary btn-sm" id="shop-send">Add to shopping list</button>
+    </div>
+  `);
+  document.getElementById("shop-cancel").addEventListener("click", closeModal);
+  document.getElementById("shop-send").addEventListener("click", guard(async () => {
+    const item_name = document.getElementById("shop-name").value.trim();
+    const amazon_link = document.getElementById("shop-link").value.trim();
+    const reason = document.getElementById("shop-reason").value.trim();
+    if (!item_name) { toast("Item name is required.", true); return; }
+    await addDoc(C.shopping, {
+      item_name, amazon_link, reason, status: "open",
+      created_by: ME.uid, created_by_name: ME.name,
+      date: todayKey(), created_at: Timestamp.now(),
+    });
+    closeModal();
+    toast("Added to shopping list");
+    viewITService();
+  }));
+  setTimeout(() => document.getElementById("shop-name")?.focus(), 40);
+}
+
+// ============================================================
+//  INVENTORY — placeholder (Coda migration coming later)
+// ============================================================
+function viewInventory() {
+  viewEl.innerHTML = `
+    <div class="card card-pad inv-soon">
+      <div class="inv-badge">Coming soon</div>
+      <div class="section-title" style="margin-top:12px">IT inventory</div>
+      <p class="greeting-sub" style="max-width:520px">This is where the IT inventory from Coda will live — devices, serial numbers, assignments, and stock. We're migrating that data next. For now this tab is a placeholder.</p>
+    </div>`;
 }
 
 // ============================================================
 //  AGENT — Dashboard
 // ============================================================
-async function refreshAgent() { if (ROUTE === "dashboard" && (ME.role === "agent" || PREVIEW_AGENT)) viewAgentDashboard(); }
+async function refreshAgent() { if (ROUTE === "dashboard" && !can("adminDash")) viewAgentDashboard(); }
 
 async function viewAgentDashboard() {
   viewEl.innerHTML = skeleton();
@@ -522,10 +799,10 @@ async function viewAgentDashboard() {
   const shiftEnded = data.sessions.length > 0 && !st.openSession; // a day was started and then ended
 
   // ----- top banner (admin preview) -----
-  const previewBanner = PREVIEW_AGENT ? `
+  const previewBanner = PREVIEW_ROLE ? `
     <div class="preview-banner">
-      <span>Previewing the agent view</span>
-      <button class="btn btn-outline btn-sm" id="exit-preview">Back to admin</button>
+      <span>Previewing as ${ROLE_LABELS[PREVIEW_ROLE] || PREVIEW_ROLE}</span>
+      <button class="btn btn-outline btn-sm" id="exit-preview">Back to super admin</button>
     </div>` : "";
 
   // ----- big status + primary buttons -----
@@ -626,7 +903,7 @@ async function viewAgentDashboard() {
     </div>`;
 
   // ----- wire buttons -----
-  $("exit-preview") && $("exit-preview").addEventListener("click", () => { PREVIEW_AGENT = false; render(); });
+  $("exit-preview") && $("exit-preview").addEventListener("click", () => { PREVIEW_ROLE = null; renderShell(); go("dashboard"); });
   $("btn-startday") && $("btn-startday").addEventListener("click", guard(async () => { await clockIn(); }));
   $("btn-addtask") && $("btn-addtask").addEventListener("click", () => openAddTaskModal());
   $("btn-endtask") && $("btn-endtask").addEventListener("click", guard(endActivity));
@@ -754,7 +1031,7 @@ function guard(fn) {
 }
 
 // Build a chronological timeline of a day's events.
-function buildTimeline(data) {
+function buildTimeline(data, instances = []) {
   const events = [];
   data.sessions.forEach((s) => {
     events.push({ t: ms(s.clock_in), node: "green", time: fmtClock(ms(s.clock_in)), desc: "Clocked in" });
@@ -775,6 +1052,16 @@ function buildTimeline(data) {
       t: ms(a.start_time), node: "orange",
       time: `${fmtClock(ms(a.start_time))} – ${a.end_time ? fmtClock(ms(a.end_time)) : "now"}`,
       desc: a.description, dur: fmtHM((end - ms(a.start_time)) / 1000) + planned,
+    });
+  });
+  // Management-only instances (only passed in from the admin day summary)
+  (instances || []).forEach((i) => {
+    const from = ms(i.from || i.at), to = i.to ? ms(i.to) : null;
+    events.push({
+      t: from, node: "inst",
+      time: `${fmtClock(from)}${to ? " – " + fmtClock(to) : ""}`,
+      desc: i.reason || i.note || i.type || "Instance",
+      dur: "Instance" + (to ? " · " + fmtHM((to - from) / 1000) : ""),
     });
   });
   events.sort((x, y) => x.t - y.t);
@@ -911,7 +1198,13 @@ async function viewAdminDashboard() {
     viewEl.innerHTML = `
       <div class="page-head">
         <div class="section-title" style="margin:0">Live floor</div>
-        <button class="btn btn-outline btn-sm" id="view-as-agent">View as agent</button>
+        ${can("viewAs") ? `<div class="viewas">
+          <label class="field-label" style="margin:0">View as</label>
+          <select id="view-as">
+            <option value="">— my view —</option>
+            ${ROLE_OPTIONS.map((r) => `<option value="${r}">${ROLE_LABELS[r]}</option>`).join("")}
+          </select>
+        </div>` : ""}
       </div>
       <div class="tiles">
         <div class="tile"><div class="t-label">🟢 Working</div><div class="t-value">${counts.working}</div></div>
@@ -939,7 +1232,11 @@ async function viewAdminDashboard() {
       </div>
       <p class="greeting-sub mt-18" style="margin:14px 0 0;font-size:12.5px">Live — updates automatically. Click an agent for their full day summary.</p>`;
 
-    $("view-as-agent").addEventListener("click", () => { PREVIEW_AGENT = true; go("dashboard"); });
+    $("view-as") && $("view-as").addEventListener("change", (e) => {
+      PREVIEW_ROLE = e.target.value || null;
+      renderShell();
+      go("dashboard");
+    });
 
     viewEl.querySelectorAll("tr.clickable").forEach((tr) =>
       tr.addEventListener("click", () => openAgentDetail(tr.dataset.uid, usersById[tr.dataset.uid])));
@@ -1010,7 +1307,7 @@ async function openAgentDetail(uid, u) {
     const st = deriveStatus(data);
     const acts = [...data.activities].sort((a, b) => ms(a.start_time) - ms(b.start_time));
     const instances = await loadInstances(uid, dayKey);
-    const editor = acts.length ? `
+    const editor = (can("management") && acts.length) ? `
       <div class="card card-pad mt-18">
         <div class="section-title">Edit tasks (admin only)</div>
         <div class="task-edit-list">
@@ -1027,7 +1324,7 @@ async function openAgentDetail(uid, u) {
         <p class="modal-hint">Leave End empty to keep a task still running. Agents can't edit these — only you can.</p>
       </div>` : "";
 
-    const instancesPanel = `
+    const instancesPanel = can("management") ? `
       <div class="card card-pad mt-18">
         <div class="section-title">Instances — management only 🔒</div>
         <p class="modal-hint" style="margin-top:0">Log a time range and a reason (breaks, incidents, etc.). Never shown to the agent.</p>
@@ -1050,7 +1347,7 @@ async function openAgentDetail(uid, u) {
           <input id="inst-reason" class="inst-note-input" type="text" placeholder="Reason" />
           <button class="btn btn-primary btn-sm" id="inst-add">Save</button>
         </div>
-      </div>`;
+      </div>` : "";
 
     viewEl.innerHTML = `
       <div class="page-head">
@@ -1066,12 +1363,12 @@ async function openAgentDetail(uid, u) {
         <div class="tile"><div class="t-label">Lunch</div><div class="t-value">${fmtHM(st.totalLunchSec)}</div></div>
         <div class="tile"><div class="t-label">Instances</div><div class="t-value">${instances.length}</div></div>
       </div>
-      <div class="card card-pad"><div class="section-title">Day summary — ${fmtDate(dayKey)}</div>${buildTimeline(data)}</div>
+      <div class="card card-pad"><div class="section-title">Day summary — ${fmtDate(dayKey)}</div>${buildTimeline(data, instances)}</div>
       ${instancesPanel}
       ${editor}
       <button class="btn btn-outline btn-sm mt-18" style="margin-top:18px" id="back-btn">← Back</button>`;
     $("detail-date").addEventListener("change", (e) => draw(e.target.value));
-    $("back-btn").addEventListener("click", () => go(ME.role === "admin" ? "agents" : "dashboard"));
+    $("back-btn").addEventListener("click", () => go(can("management") ? "agents" : "dashboard"));
 
     // task editor wiring
     viewEl.querySelectorAll(".task-edit-row").forEach((row) => {
@@ -1093,7 +1390,7 @@ async function openAgentDetail(uid, u) {
     });
 
     // instances wiring
-    $("inst-add").addEventListener("click", guard(async () => {
+    $("inst-add") && $("inst-add").addEventListener("click", guard(async () => {
       const fromHHMM = $("inst-from").value, toHHMM = $("inst-to").value;
       const reason = $("inst-reason").value.trim();
       if (!fromHHMM || !toHHMM) { toast("Set both times.", true); return; }
@@ -1263,30 +1560,34 @@ function agentName(d, uid) {
 async function viewSettings() {
   viewEl.innerHTML = skeleton();
   const users = (await getDocsArr(C.users)).sort((a, b) => a.name.localeCompare(b.name));
+  const canDelete = can("deleteUsers");
   viewEl.innerHTML = `
-    <div class="page-head"><div class="section-title">Agents & roles</div></div>
-    <p class="greeting-sub">Promote an agent to admin or change them back. Deleting a user removes their profile and all of their records.</p>
+    <div class="page-head"><div class="section-title">People & roles</div></div>
+    <p class="greeting-sub">Set each person's role. ${canDelete ? "Deleting a user removes their profile and all of their records." : ""}</p>
     <div class="card table-wrap">
-      <table><thead><tr><th>Agent</th><th>Email</th><th>Role</th><th></th><th></th></tr></thead><tbody>
-      ${users.map((u) => `<tr>
+      <table><thead><tr><th>Person</th><th>Email</th><th>Role</th>${canDelete ? "<th></th>" : ""}</tr></thead><tbody>
+      ${users.map((u) => {
+        const current = isSuperAdminEmail(u.email) ? "super_admin" : (u.role || "agent");
+        const locked = isSuperAdminEmail(u.email) || u.uid === ME.uid;
+        return `<tr>
         <td><div class="cell-agent">
           <img class="avatar" src="${esc(u.profile_picture || fallbackAvatar(u.name))}" onerror="this.src='${fallbackAvatar(u.name)}'" alt="" />
           <span class="nm">${esc(u.name)}</span></div></td>
         <td>${esc(u.email)}</td>
-        <td style="text-transform:capitalize">${esc(u.role)}</td>
-        <td>${u.uid === ME.uid ? '<span class="em">you</span>' :
-          `<button class="btn btn-outline btn-sm" data-role-uid="${u.uid}" data-role="${u.role === "admin" ? "agent" : "admin"}">
-            Make ${u.role === "admin" ? "agent" : "admin"}</button>`}</td>
-        <td>${u.uid === ME.uid ? "" :
-          `<button class="btn btn-danger btn-sm" data-del-uid="${u.uid}" data-name="${esc(u.name)}">Delete</button>`}</td>
-      </tr>`).join("")}
+        <td>${locked
+          ? `<span class="badge out">${ROLE_LABELS[current] || current}${u.uid === ME.uid ? " · you" : ""}</span>`
+          : `<select class="role-select" data-uid="${u.uid}">
+              ${ROLE_OPTIONS.map((r) => `<option value="${r}" ${current === r ? "selected" : ""}>${ROLE_LABELS[r]}</option>`).join("")}
+            </select>`}</td>
+        ${canDelete ? `<td>${locked ? "" : `<button class="btn btn-danger btn-sm" data-del-uid="${u.uid}" data-name="${esc(u.name)}">Delete</button>`}</td>` : ""}
+      </tr>`;
+      }).join("")}
       </tbody></table>
     </div>`;
-  viewEl.querySelectorAll("button[data-role-uid]").forEach((b) =>
-    b.addEventListener("click", guard(async () => {
-      await updateDoc(doc(C.users, b.dataset.roleUid), { role: b.dataset.role });
-      toast(`Role updated to ${b.dataset.role}`);
-      viewSettings();
+  viewEl.querySelectorAll("select.role-select").forEach((sel) =>
+    sel.addEventListener("change", guard(async () => {
+      await updateDoc(doc(C.users, sel.dataset.uid), { role: sel.value });
+      toast(`Role set to ${ROLE_LABELS[sel.value] || sel.value}`);
     })));
   viewEl.querySelectorAll("button[data-del-uid]").forEach((b) =>
     b.addEventListener("click", () => confirmDeleteUser(b.dataset.delUid, b.dataset.name)));
@@ -1322,6 +1623,9 @@ async function adminDeleteUser(uid) {
   await purge(C.lunches, "user_id");
   await purge(C.activities, "user_id");
   await purge(C.tasks, "assigned_to");
+  await purge(C.instances, "user_id").catch(() => {});
+  await purge(C.it_requests, "created_by").catch(() => {});
+  await purge(C.shopping, "created_by").catch(() => {});
   await deleteDoc(doc(C.users, uid));
 }
 
@@ -1545,6 +1849,9 @@ function icon(name) {
     list: '<line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>',
     check: '<path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>',
     map: '<polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/>',
+    bolt: '<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>',
+    box: '<path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/>',
+    bell: '<path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/>',
     clock: '<circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 14"/>',
     user: '<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
     users: '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',

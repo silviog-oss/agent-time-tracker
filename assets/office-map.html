@@ -136,7 +136,7 @@ function App(){
   useEffect(()=>{hasUnsavedRef.current=hasUnsaved;},[hasUnsaved]);
   const [selected,setSelected]=useState(null);
   const [panel,setPanel]=useState("view");
-  const [search,setSearch]=useState("");
+  const [search,setSearch]=useState(()=>{try{return new URLSearchParams(location.search).get("highlight")||"";}catch{return "";}});
   const [dragging,setDragging]=useState(null);
   const [dragOver,setDragOver]=useState(null);
   const [confirm,setConfirm]=useState(null);

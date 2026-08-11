@@ -91,6 +91,39 @@ service cloud.firestore {
       allow read, create, update, delete: if isAdmin();
     }
 
+    // Role of the requesting user (email super-admins always count).
+    function myRole() {
+      return isSuperAdmin() ? 'super_admin'
+        : (exists(/databases/$(database)/documents/users/$(request.auth.uid))
+            ? get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role
+            : 'agent');
+    }
+    function isITStaff() {
+      return isSignedIn() && myRole() in ['super_admin','it_admin','admin','it_agent'];
+    }
+    function canCreateReq() {
+      return isSignedIn() && myRole() in ['super_admin','it_admin','admin','it_agent','supervisor'];
+    }
+    function canCreateShopping() {
+      return isSignedIn() && myRole() in ['super_admin','it_admin','admin','supervisor'];
+    }
+
+    // ---- IT requests ----
+    match /it_requests/{id} {
+      allow read:   if isITStaff() || (isSignedIn() && resource.data.created_by == request.auth.uid);
+      allow create: if canCreateReq() && request.resource.data.created_by == request.auth.uid;
+      allow update: if isITStaff() || (isSignedIn() && resource.data.created_by == request.auth.uid);
+      allow delete: if isITStaff() || (isSignedIn() && resource.data.created_by == request.auth.uid);
+    }
+
+    // ---- Shopping list ----
+    match /shopping/{id} {
+      allow read:   if isITStaff() || (isSignedIn() && resource.data.created_by == request.auth.uid);
+      allow create: if canCreateShopping() && request.resource.data.created_by == request.auth.uid;
+      allow update: if isITStaff();
+      allow delete: if isITStaff() || (isSignedIn() && resource.data.created_by == request.auth.uid);
+    }
+
     // ---- Shared settings (e.g. the office map) — any signed-in user ----
     match /settings/{id} {
       allow read, write: if isSignedIn();

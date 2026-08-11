@@ -214,6 +214,7 @@ a { color: var(--orange); text-decoration: none; }
 .tl-node.gray { background: var(--gray-dot); }
 .tl-node.green { background: var(--green); }
 .tl-node.amber { background: var(--amber); }
+.tl-node.inst { background: #7C5CFF; }
 .tl-line { width: 2px; flex: 1; background: var(--border); margin: 3px 0; }
 .tl-body { padding-bottom: 18px; flex: 1; }
 .tl-time { font-size: 12.5px; color: var(--muted); font-weight: 600; font-variant-numeric: tabular-nums; }
@@ -403,6 +404,38 @@ tbody tr.clickable:hover { background: #FAFAFB; }
 .inst-divider { height: 1px; background: var(--border); margin: 14px 0 12px; }
 .inst-row .ie-reason:focus, .inst-row input:focus { outline: none; border-color: var(--orange); box-shadow: 0 0 0 3px var(--orange-soft); }
 .inst-row { align-items: flex-end; }
+
+/* ---------- Bell ---------- */
+.bell-btn { position: relative; color: var(--ink); }
+.bell-count { position: absolute; top: -2px; right: -2px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 999px; background: var(--orange); color: #fff; font-size: 10px; font-weight: 800; display: flex; align-items: center; justify-content: center; }
+
+/* ---------- View-as ---------- */
+.viewas { display: flex; align-items: center; gap: 8px; }
+.viewas select { border: 1px solid var(--border-strong); border-radius: var(--radius-sm); padding: 7px 10px; font-family: inherit; font-size: 13px; color: var(--ink); background: var(--card); }
+
+/* ---------- Modal inputs ---------- */
+.modal-input { width: 100%; height: 40px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); padding: 0 12px; font-family: inherit; font-size: 14px; color: var(--ink); }
+.modal-input:focus { outline: none; border-color: var(--orange); box-shadow: 0 0 0 3px var(--orange-soft); }
+
+/* ---------- IT Service ---------- */
+.it-topbtns { display: flex; gap: 8px; flex-wrap: wrap; }
+.it-list { display: flex; flex-direction: column; gap: 12px; }
+.it-card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); padding: 16px; }
+.it-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+.it-cat { font-weight: 700; font-size: 15px; }
+.it-for { font-size: 14px; }
+.it-details { color: var(--muted); margin-top: 6px; }
+.it-meta { font-size: 13px; color: var(--muted); margin-top: 6px; }
+.it-resolution { background: #F0FBF3; border: 1px solid #CBEBD5; color: #15803d; border-radius: var(--radius-sm); padding: 8px 12px; font-size: 13px; margin-top: 8px; }
+.it-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+.it-shop-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--border); }
+.it-shop-row:last-child { border-bottom: none; }
+.it-shop-row.done { opacity: .6; }
+.it-shop-main { min-width: 0; }
+
+/* ---------- Inventory placeholder ---------- */
+.inv-soon { text-align: left; }
+.inv-badge { display: inline-block; background: var(--orange-soft); color: #9a4a00; border: 1px solid #FBD9BC; border-radius: 999px; padding: 4px 12px; font-size: 12px; font-weight: 700; }
 
 /* toast */
 .toast {
