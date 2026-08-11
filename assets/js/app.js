@@ -12,7 +12,7 @@ import {
   query, where, serverTimestamp, Timestamp, onSnapshot
 } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
-import { firebaseConfig, ALLOWED_EMAIL_DOMAIN, SUPER_ADMIN_EMAILS } from "./config.js?v=6";
+import { firebaseConfig, ALLOWED_EMAIL_DOMAIN, SUPER_ADMIN_EMAILS } from "./config.js?v=8";
 
 const isSuperAdminEmail = (email) =>
   (SUPER_ADMIN_EMAILS || []).map((e) => e.toLowerCase()).includes((email || "").toLowerCase());
@@ -29,10 +29,11 @@ const C = {
   lunches:    collection(db, "lunches"),
   activities: collection(db, "activities"),
   tasks:      collection(db, "tasks"),
+  instances:  collection(db, "instances"),
 };
 
 // ---------- App meta ----------
-const APP_VERSION = "v2.2.1";
+const APP_VERSION = "v2.3.0";
 
 // ---------- Global state ----------
 let ME = null;              // { uid, name, email, photo, role }
@@ -404,6 +405,29 @@ async function endActivityDoc(a) {
   await updateDoc(doc(C.activities, a.id), { end_time: now, duration: dur });
 }
 
+// ============================================================
+//  Instances (management-only notes on an agent's day:
+//  breaks, incidents, late arrivals, etc. — never shown to agents)
+// ============================================================
+const INSTANCE_TYPES = ["Break", "Meeting", "Coaching", "Technical issue", "Late arrival", "Left early", "Absence", "Other"];
+
+async function loadInstances(uid, dayKey) {
+  return (await getDocsArr(query(C.instances, where("user_id", "==", uid), where("date", "==", dayKey))))
+    .sort((a, b) => (ms(a.at) || 0) - (ms(b.at) || 0));
+}
+async function addInstance(uid, userName, { type, note, hhmm, dayKey }) {
+  const [h, m] = (hhmm || "00:00").split(":").map(Number);
+  const [y, mo, d] = dayKey.split("-").map(Number);
+  const at = new Date(y, mo - 1, d, h, m, 0, 0);
+  await addDoc(C.instances, {
+    user_id: uid, user_name: userName,
+    created_by: ME.uid, created_by_name: ME.name,
+    type: type || "Other", note: (note || "").trim(),
+    at: Timestamp.fromDate(at), date: dayKey, created_at: serverTimestamp(),
+  });
+}
+async function deleteInstance(id) { await deleteDoc(doc(C.instances, id)); }
+
 // Admin-only: edit a whole task (agents can't — enforced in rules).
 async function adminSaveActivity(id, { desc, startHHMM, endHHMM, planned }, dayKey) {
   if (!desc) { toast("Description can't be empty.", true); return false; }
@@ -510,6 +534,7 @@ async function viewAgentDashboard() {
           <span>Elapsed <b class="num" id="t-task">—</b></span>
         </div>
         <div class="ct-actions">
+          <button class="btn btn-dark btn-sm" id="btn-endtask-card">End task</button>
           <button class="btn btn-outline btn-sm" id="btn-extend">Extend +15 min</button>
         </div>
       </div>`;
@@ -570,6 +595,7 @@ async function viewAgentDashboard() {
   $("btn-startday") && $("btn-startday").addEventListener("click", guard(async () => { await clockIn(); }));
   $("btn-addtask") && $("btn-addtask").addEventListener("click", () => openAddTaskModal());
   $("btn-endtask") && $("btn-endtask").addEventListener("click", guard(endActivity));
+  $("btn-endtask-card") && $("btn-endtask-card").addEventListener("click", guard(endActivity));
   $("btn-extend") && $("btn-extend").addEventListener("click", guard(() => extendActivity(st.openActivity.id, 15)));
   $("btn-lunch") && $("btn-lunch").addEventListener("click", guard(async () => { await startLunch(); openLunchModal(); }));
   $("btn-endlunch") && $("btn-endlunch").addEventListener("click", guard(async () => { await endLunch(); closeModal(); }));
@@ -948,6 +974,7 @@ async function openAgentDetail(uid, u) {
     const data = await loadDay(uid, dayKey);
     const st = deriveStatus(data);
     const acts = [...data.activities].sort((a, b) => ms(a.start_time) - ms(b.start_time));
+    const instances = await loadInstances(uid, dayKey);
     const editor = acts.length ? `
       <div class="card card-pad mt-18">
         <div class="section-title">Edit tasks (admin only)</div>
@@ -964,6 +991,31 @@ async function openAgentDetail(uid, u) {
         </div>
         <p class="modal-hint">Leave End empty to keep a task still running. Agents can't edit these — only you can.</p>
       </div>` : "";
+
+    const instancesPanel = `
+      <div class="card card-pad mt-18">
+        <div class="section-title">Instances — management only 🔒</div>
+        <p class="modal-hint" style="margin-top:0">Log breaks, incidents, late arrivals and notes. These are never shown to the agent.</p>
+        <div class="inst-list">
+          ${instances.length ? instances.map((i) => `
+            <div class="inst-row" data-id="${i.id}">
+              <span class="inst-time num">${fmtClock(ms(i.at))}</span>
+              <span class="badge out">${esc(i.type)}</span>
+              <span class="inst-note">${i.note ? esc(i.note) : ""}</span>
+              <span class="inst-by">by ${esc(i.created_by_name || "")}</span>
+              <button class="btn btn-danger btn-sm inst-del">Delete</button>
+            </div>`).join("") : `<div class="em" style="padding:6px 0">No instances logged for this day.</div>`}
+        </div>
+        <div class="inst-form">
+          <label class="te-field"><span>Type</span>
+            <select id="inst-type">${INSTANCE_TYPES.map((t) => `<option>${t}</option>`).join("")}</select>
+          </label>
+          <label class="te-field"><span>Time</span><input id="inst-time" type="time" value="${hhmm(Date.now())}" /></label>
+          <input id="inst-note" class="inst-note-input" type="text" placeholder="Note (optional)" />
+          <button class="btn btn-primary btn-sm" id="inst-add">Add instance</button>
+        </div>
+      </div>`;
+
     viewEl.innerHTML = `
       <div class="page-head">
         <div class="cell-agent">
@@ -976,13 +1028,16 @@ async function openAgentDetail(uid, u) {
         <div class="tile"><div class="t-label">Status</div><div class="t-value" style="font-size:16px;margin-top:8px">${badge(st.status)}</div></div>
         <div class="tile"><div class="t-label">Worked</div><div class="t-value">${fmtHM(st.totalWorkedSec)}</div></div>
         <div class="tile"><div class="t-label">Lunch</div><div class="t-value">${fmtHM(st.totalLunchSec)}</div></div>
-        <div class="tile"><div class="t-label">Tasks</div><div class="t-value">${data.activities.length}</div></div>
+        <div class="tile"><div class="t-label">Instances</div><div class="t-value">${instances.length}</div></div>
       </div>
       <div class="card card-pad"><div class="section-title">Day summary — ${fmtDate(dayKey)}</div>${buildTimeline(data)}</div>
+      ${instancesPanel}
       ${editor}
       <button class="btn btn-outline btn-sm mt-18" style="margin-top:18px" id="back-btn">← Back</button>`;
     $("detail-date").addEventListener("change", (e) => draw(e.target.value));
     $("back-btn").addEventListener("click", () => go(ME.role === "admin" ? "agents" : "dashboard"));
+
+    // task editor wiring
     viewEl.querySelectorAll(".task-edit-row").forEach((row) => {
       const id = row.dataset.id;
       row.querySelector(".te-save").addEventListener("click", guard(async () => {
@@ -997,6 +1052,25 @@ async function openAgentDetail(uid, u) {
       row.querySelector(".te-del").addEventListener("click", guard(async () => {
         await deleteDoc(doc(C.activities, id));
         toast("Task deleted");
+        draw(dayKey);
+      }));
+    });
+
+    // instances wiring
+    $("inst-add").addEventListener("click", guard(async () => {
+      await addInstance(uid, u.name, {
+        type: $("inst-type").value,
+        note: $("inst-note").value,
+        hhmm: $("inst-time").value,
+        dayKey,
+      });
+      toast("Instance added");
+      draw(dayKey);
+    }));
+    viewEl.querySelectorAll(".inst-row").forEach((row) => {
+      row.querySelector(".inst-del").addEventListener("click", guard(async () => {
+        await deleteInstance(row.dataset.id);
+        toast("Instance deleted");
         draw(dayKey);
       }));
     });

@@ -86,5 +86,9 @@ service cloud.firestore {
             && request.resource.data.assigned_by == resource.data.assigned_by
             && request.resource.data.title == resource.data.title);
     }
+    // ---- Instances (management-only notes; agents have NO access) ----
+    match /instances/{id} {
+      allow read, create, update, delete: if isAdmin();
+    }
   }
 }

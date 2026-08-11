@@ -385,6 +385,18 @@ tbody tr.clickable:hover { background: #FAFAFB; }
 .te-planned { width: 78px; }
 .te-desc:focus, .te-field input:focus { outline: none; border-color: var(--orange); box-shadow: 0 0 0 3px var(--orange-soft); }
 
+/* instances (management-only) */
+.inst-list { display: flex; flex-direction: column; gap: 8px; margin: 8px 0 14px; }
+.inst-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+.inst-row:last-child { border-bottom: none; }
+.inst-time { font-weight: 700; min-width: 64px; }
+.inst-note { flex: 1; min-width: 140px; }
+.inst-by { color: var(--faint); font-size: 12px; }
+.inst-form { display: flex; align-items: flex-end; gap: 10px; flex-wrap: wrap; padding-top: 12px; border-top: 1px solid var(--border); }
+.inst-form select, .inst-form input[type="time"] { height: 38px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); padding: 0 8px; font-family: inherit; font-size: 14px; color: var(--ink); }
+.inst-note-input { flex: 1 1 200px; min-width: 160px; height: 38px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); padding: 0 10px; font-family: inherit; font-size: 14px; color: var(--ink); }
+.inst-form select:focus, .inst-form input:focus { outline: none; border-color: var(--orange); box-shadow: 0 0 0 3px var(--orange-soft); }
+
 /* toast */
 .toast {
   position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%);
