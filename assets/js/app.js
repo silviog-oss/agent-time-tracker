@@ -12,7 +12,7 @@ import {
   query, where, serverTimestamp, Timestamp, onSnapshot
 } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
-import { firebaseConfig, ALLOWED_EMAIL_DOMAIN, SUPER_ADMIN_EMAILS } from "./config.js?v=10";
+import { firebaseConfig, ALLOWED_EMAIL_DOMAIN, SUPER_ADMIN_EMAILS } from "./config.js?v=11";
 
 const isSuperAdminEmail = (email) =>
   (SUPER_ADMIN_EMAILS || []).map((e) => e.toLowerCase()).includes((email || "").toLowerCase());
@@ -30,10 +30,11 @@ const C = {
   activities: collection(db, "activities"),
   tasks:      collection(db, "tasks"),
   instances:  collection(db, "instances"),
+  settings:   collection(db, "settings"),
 };
 
 // ---------- App meta ----------
-const APP_VERSION = "v2.4.0";
+const APP_VERSION = "v2.4.1";
 
 // ---------- Global state ----------
 let ME = null;              // { uid, name, email, photo, role }
@@ -489,7 +490,7 @@ function render() {
 
 // Office map — self-contained page embedded in an iframe (visible to everyone)
 function viewMap() {
-  viewEl.innerHTML = `<div class="map-wrap"><iframe class="map-frame" src="assets/office-map.html?v=9" title="Office Map"></iframe></div>`;
+  viewEl.innerHTML = `<div class="map-wrap"><iframe class="map-frame" src="assets/office-map.html?v=11" title="Office Map"></iframe></div>`;
 }
 
 // ============================================================

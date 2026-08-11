@@ -7,7 +7,17 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
-<style>*{margin:0;padding:0;box-sizing:border-box;}body{font-family:system-ui,sans-serif;background:#f8fafc;}</style>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet"/>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box;}
+  html,body{height:100%;}
+  body{font-family:'Inter',system-ui,sans-serif;background:#F6F7F8;color:#1F2329;-webkit-font-smoothing:antialiased;}
+  button,input,select,textarea{font-family:inherit;}
+  ::selection{background:#FFE0C7;}
+  ::-webkit-scrollbar{width:10px;height:10px;}
+  ::-webkit-scrollbar-thumb{background:#D8DADE;border-radius:6px;}
+</style>
 </head>
 <body>
 <div id="root"></div>
@@ -23,7 +33,7 @@ const roleStyle = {
   "Customer Service":{bg:"#dcfce7",text:"#15803d",border:"#86efac"},
   "HR":              {bg:"#fce7f3",text:"#be185d",border:"#f9a8d4"},
   "KB":              {bg:"#ffedd5",text:"#c2410c",border:"#fdba74"},
-  "":                {bg:"#f8fafc",text:"#94a3b8",border:"#e2e8f0"},
+  "":                {bg:"#F6F7F8",text:"#94a3b8",border:"#e2e8f0"},
 };
 const DEVICE_TYPES=["Computer","Monitor","Mouse","Headset","Keyboard","Laptop"];
 const deviceIcon={Computer:"🖥️",Monitor:"🖥️",Mouse:"🖱️",Headset:"🎧",Keyboard:"⌨️",Laptop:"💻"};
@@ -141,7 +151,7 @@ function App(){
     try{
       localStorage.setItem(STORAGE_KEY,JSON.stringify({state:history[histPtr],nextId,savedAt:new Date().toISOString()}));
       const now=new Date().toISOString();
-      setSavedAt(now);setHasUnsaved(false);showToast("💾 Saved!","success");
+      setSavedAt(now);setHasUnsaved(false);showToast("Saved!","success");
     }catch{showToast("❌ Save failed","error");}
   }
 
@@ -160,7 +170,7 @@ function App(){
   function resizeGrid(dr,dc){
     const nr=Math.max(1,ROWS+dr),nc=Math.max(1,COLS+dc);
     pushState({rows:nr,cols:nc,cubicles:cubicles.filter(c=>c.row<=nr&&c.col<=nc)});
-    showToast(`📐 ${nr}×${nc}`);
+    showToast(`${nr}×${nc}`);
   }
 
   function saveDevices(){pushState({cubicles:cubicles.map(c=>c.id===selected.id?{...c,devices:devicesForm}:c)});setSelected(s=>({...s,devices:devicesForm}));setPanel("view");showToast("✅ Devices saved!");}
@@ -217,10 +227,10 @@ function App(){
   const DeviceList=({devices,expanded,setExpanded,onRemove})=>(
     <>
       {(devices||[]).length===0
-        ?<div style={{fontSize:12,color:"#94a3b8",padding:8,background:"#f8fafc",borderRadius:7,textAlign:"center",marginBottom:10}}>No devices assigned.</div>
+        ?<div style={{fontSize:12,color:"#94a3b8",padding:8,background:"#F6F7F8",borderRadius:7,textAlign:"center",marginBottom:10}}>No devices assigned.</div>
         :(devices||[]).map((d,i)=>(
           <div key={i} style={{marginBottom:6,borderRadius:8,border:"1px solid #e2e8f0",overflow:"hidden"}}>
-            <div style={{background:expanded[i]?"#f0f9ff":"#f8fafc",padding:"8px 10px",display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:13}}>
+            <div style={{background:expanded[i]?"#FFF6EF":"#F6F7F8",padding:"8px 10px",display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:13}}>
               <button onClick={()=>setExpanded(e=>({...e,[i]:!e[i]}))} style={{background:"none",border:"none",cursor:"pointer",flex:1,textAlign:"left",fontSize:13,padding:0}}>
                 {deviceIcon[d.type]||"📦"} <strong>{d.type}</strong>{d.model?` — ${d.model}`:""}
               </button>
@@ -249,7 +259,7 @@ function App(){
     <>
       <div style={{maxHeight:300,overflowY:"auto",paddingRight:2}}>
         {form.map((d,i)=>(
-          <div key={i} style={{marginBottom:10,background:"#f8fafc",borderRadius:8,padding:10,border:"1px solid #e2e8f0"}}>
+          <div key={i} style={{marginBottom:10,background:"#F6F7F8",borderRadius:8,padding:10,border:"1px solid #e2e8f0"}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
               <span style={{fontSize:12,fontWeight:700,color:"#475569"}}>Device {i+1}</span>
               <button onClick={()=>setForm(f=>f.filter((_,idx)=>idx!==i))} style={{background:"none",border:"none",cursor:"pointer",color:"#ef4444",fontSize:16}}>🗑</button>
@@ -267,12 +277,12 @@ function App(){
           </div>
         ))}
       </div>
-      <button onClick={()=>setForm(f=>[...f,{...emptyDevice(),_id:Date.now()}])} style={{...btn("#f1f5f9","#475569"),width:"100%",marginBottom:8,padding:"7px 0",fontSize:12}}>＋ Add Device</button>
+      <button onClick={()=>setForm(f=>[...f,{...emptyDevice(),_id:Date.now()}])} style={{...btn("#f1f5f9","#475569"),width:"100%",marginBottom:8,padding:"7px 0",fontSize:12}}>Add device</button>
     </>
   );
 
   return (
-    <div style={{fontFamily:"system-ui,sans-serif",background:"#f8fafc",minHeight:"100vh",padding:16}}>
+    <div style={{fontFamily:"system-ui,sans-serif",background:"transparent",minHeight:"100%",padding:2}}>
       <div style={{maxWidth:1200,margin:"0 auto"}}>
 
         {toast&&<div style={{position:"fixed",top:16,left:"50%",transform:"translateX(-50%)",background:toastBg[toastType]||"#1e293b",color:"#fff",padding:"10px 20px",borderRadius:10,fontSize:13,fontWeight:600,zIndex:9999,boxShadow:"0 4px 20px rgba(0,0,0,0.2)",pointerEvents:"none"}}>{toast}</div>}
@@ -283,7 +293,7 @@ function App(){
               <div style={{fontSize:32,marginBottom:8}}>⚠️</div>
               <div style={{fontSize:15,fontWeight:700,marginBottom:6}}>What to do with {confirm.name}?</div>
               <div style={{display:"flex",flexDirection:"column",gap:8,marginTop:12}}>
-                <button onClick={()=>sendToWFH(confirm)} style={{...btn("#3b82f6","#fff"),padding:"9px 0"}}>🏠 Move to WFH</button>
+                <button onClick={()=>sendToWFH(confirm)} style={{...btn("#FF6A00","#fff"),padding:"9px 0"}}>🏠 Move to WFH</button>
                 <button onClick={removePerson} style={{...btn("#ef4444","#fff"),padding:"9px 0"}}>🗑️ Remove Permanently</button>
                 <button onClick={()=>setConfirm(null)} style={{...btn("#f1f5f9","#475569"),padding:"9px 0"}}>Cancel</button>
               </div>
@@ -294,14 +304,14 @@ function App(){
         {showWFH&&(
           <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:9997}}>
             <div style={{background:"#fff",borderRadius:14,width:520,maxHeight:"85vh",display:"flex",flexDirection:"column",boxShadow:"0 12px 48px rgba(0,0,0,0.25)",overflow:"hidden"}}>
-              <div style={{padding:"16px 20px",borderBottom:"1px solid #f1f5f9",display:"flex",justifyContent:"space-between",alignItems:"center",background:"#f8fafc"}}>
-                <div><div style={{fontSize:16,fontWeight:700}}>🏠 Work From Home</div><div style={{fontSize:12,color:"#94a3b8"}}>{wfh.length} agent{wfh.length!==1?"s":""} remote</div></div>
+              <div style={{padding:"16px 20px",borderBottom:"1px solid #f1f5f9",display:"flex",justifyContent:"space-between",alignItems:"center",background:"#F6F7F8"}}>
+                <div><div style={{fontSize:16,fontWeight:700}}>Work from home</div><div style={{fontSize:12,color:"#94a3b8"}}>{wfh.length} agent{wfh.length!==1?"s":""} remote</div></div>
                 <button onClick={()=>{setShowWFH(false);setWfhSelected(null);}} style={{background:"none",border:"none",fontSize:20,cursor:"pointer",color:"#94a3b8"}}>×</button>
               </div>
               <div style={{display:"flex",flex:1,overflow:"hidden"}}>
                 <div style={{width:200,borderRight:"1px solid #f1f5f9",overflowY:"auto",padding:10}}>
                   <div style={{marginBottom:10,background:"#f0fdf4",borderRadius:8,padding:8,border:"1px solid #86efac"}}>
-                    <div style={{fontSize:10,fontWeight:700,color:"#15803d",marginBottom:6}}>＋ ADD WFH AGENT</div>
+                    <div style={{fontSize:10,fontWeight:700,color:"#15803d",marginBottom:6}}>Add WFH agent</div>
                     <input value={wfhForm.name} onChange={e=>setWfhForm(f=>({...f,name:e.target.value}))} placeholder="Name" style={{...iStyle,marginBottom:5}}/>
                     <select value={wfhForm.role} onChange={e=>setWfhForm(f=>({...f,role:e.target.value}))} style={{...iStyle,marginBottom:6}}>
                       {ROLES.map(r=><option key={r} value={r}>{r||"— No role —"}</option>)}
@@ -311,16 +321,16 @@ function App(){
                   {wfh.length===0?<div style={{fontSize:12,color:"#94a3b8",textAlign:"center",padding:"20px 0"}}>No WFH agents</div>
                     :wfh.map(w=>{const ws=roleStyle[w.role]||roleStyle[""];const im=whlIds.has(w.id);
                       return(<div key={w.id} onClick={()=>{setWfhSelected(w);setWfhPanel("view");setWfhDevicesForm((w.devices||[]).map(d=>({...d})));setWfhExpandedDevices({});}}
-                        style={{padding:"8px 10px",borderRadius:8,marginBottom:5,cursor:"pointer",border:`1px solid ${wfhSelected?.id===w.id?"#3b82f6":im?"#eab308":ws.border}`,background:im?"#fef08a":wfhSelected?.id===w.id?"#eff6ff":ws.bg,transition:"all 0.1s"}}>
+                        style={{padding:"8px 10px",borderRadius:8,marginBottom:5,cursor:"pointer",border:`1px solid ${wfhSelected?.id===w.id?"#FF6A00":im?"#eab308":ws.border}`,background:im?"#fef08a":wfhSelected?.id===w.id?"#FFF6EF":ws.bg,transition:"all 0.1s"}}>
                         <div style={{fontSize:13,fontWeight:700}}>{w.name}</div>
                         {w.role&&<div style={{fontSize:10,color:ws.text,fontWeight:600}}>{w.role}</div>}
-                        {(w.devices||[]).length>0&&<div style={{fontSize:10,color:"#94a3b8"}}>📦 {w.devices.length}</div>}
+                        {(w.devices||[]).length>0&&<div style={{fontSize:10,color:"#94a3b8"}}>{w.devices.length}</div>}
                       </div>);
                     })
                   }
                 </div>
                 <div style={{flex:1,overflowY:"auto",padding:16}}>
-                  {!wfhSelected?<div style={{textAlign:"center",color:"#94a3b8",marginTop:40}}><div style={{fontSize:28}}>👈</div><div style={{fontSize:13,marginTop:8}}>Select an agent</div></div>:(
+                  {!wfhSelected?<div style={{textAlign:"center",color:"#94a3b8",marginTop:40}}><div style={{fontSize:28}}></div><div style={{fontSize:13,marginTop:8}}>Select an agent</div></div>:(
                     <>
                       <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
                         <div>
@@ -330,9 +340,9 @@ function App(){
                         <button onClick={()=>setWfhSelected(null)} style={{background:"none",border:"none",fontSize:16,cursor:"pointer",color:"#94a3b8"}}>×</button>
                       </div>
                       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:5,marginBottom:12}}>
-                        {[["view","👁 View"],["devices","🖥 Devices"]].map(([p,label])=>(
+                        {[["view","View"],["devices","Devices"]].map(([p,label])=>(
                           <button key={p} onClick={()=>{setWfhPanel(p);if(p==="devices")setWfhDevicesForm((wfhSelected.devices||[]).map(d=>({...d})));}}
-                            style={{...btn(wfhPanel===p?"#3b82f6":"#f1f5f9",wfhPanel===p?"#fff":"#475569"),padding:"7px 0",fontSize:11}}>{label}</button>
+                            style={{...btn(wfhPanel===p?"#FF6A00":"#f1f5f9",wfhPanel===p?"#fff":"#475569"),padding:"7px 0",fontSize:11}}>{label}</button>
                         ))}
                       </div>
                       {wfhPanel==="view"&&(
@@ -340,7 +350,7 @@ function App(){
                           <div style={{fontSize:12,fontWeight:600,color:"#475569",marginBottom:7}}>Devices ({(wfhSelected.devices||[]).length})</div>
                           <DeviceList devices={wfhSelected.devices} expanded={wfhExpandedDevices} setExpanded={setWfhExpandedDevices} onRemove={removeWfhDeviceInline}/>
                           <div style={{marginTop:10,padding:10,background:"#f0fdf4",borderRadius:8,border:"1px solid #86efac"}}>
-                            <div style={{fontSize:11,fontWeight:600,color:"#15803d",marginBottom:6}}>↩ Return to Map</div>
+                            <div style={{fontSize:11,fontWeight:600,color:"#15803d",marginBottom:6}}>Return to map</div>
                             <div style={{display:"flex",gap:5,marginBottom:6}}>
                               <div style={{flex:1}}><div style={lStyle}>Row</div><input type="number" value={returnCoords[wfhSelected.id]?.row||""} onChange={e=>setReturnCoords(r=>({...r,[wfhSelected.id]:{...r[wfhSelected.id],row:e.target.value}}))} style={iStyle} placeholder="1–?"/></div>
                               <div style={{flex:1}}><div style={lStyle}>Col</div><input type="number" value={returnCoords[wfhSelected.id]?.col||""} onChange={e=>setReturnCoords(r=>({...r,[wfhSelected.id]:{...r[wfhSelected.id],col:e.target.value}}))} style={iStyle} placeholder="1–?"/></div>
@@ -368,32 +378,32 @@ function App(){
         {/* Header */}
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10,flexWrap:"wrap",gap:8}}>
           <div>
-            <h1 style={{margin:0,fontSize:20,fontWeight:700,color:"#1e293b"}}>🗺️ Office Floor Map</h1>
-            <p style={{margin:"2px 0 0",fontSize:12,color:"#64748b"}}>Click to manage · Drag to move/swap · {ROWS}×{COLS}</p>
+            <h1 style={{margin:0,fontSize:22,fontWeight:800,letterSpacing:"-0.4px",color:"#16181D"}}>Office floor</h1>
+            <p style={{margin:"3px 0 0",fontSize:12.5,color:"#6B7280"}}>Click a desk to manage · drag to move or swap · {ROWS}×{COLS}</p>
           </div>
           <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
-            <button onClick={undo} disabled={!canUndo} style={{...btn(canUndo?"#f1f5f9":"#f8fafc",canUndo?"#374151":"#cbd5e1"),padding:"7px 11px",fontSize:15,opacity:canUndo?1:0.5}}>↩️</button>
-            <button onClick={redo} disabled={!canRedo} style={{...btn(canRedo?"#f1f5f9":"#f8fafc",canRedo?"#374151":"#cbd5e1"),padding:"7px 11px",fontSize:15,opacity:canRedo?1:0.5}}>↪️</button>
+            <button onClick={undo} disabled={!canUndo} style={{...btn(canUndo?"#f1f5f9":"#F6F7F8",canUndo?"#374151":"#cbd5e1"),padding:"7px 11px",fontSize:15,opacity:canUndo?1:0.5}}>Undo</button>
+            <button onClick={redo} disabled={!canRedo} style={{...btn(canRedo?"#f1f5f9":"#F6F7F8",canRedo?"#374151":"#cbd5e1"),padding:"7px 11px",fontSize:15,opacity:canRedo?1:0.5}}>Redo</button>
             <div style={{position:"relative"}}>
               <span style={{position:"absolute",left:9,top:"50%",transform:"translateY(-50%)",fontSize:13,color:"#94a3b8"}}>🔍</span>
-              <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search name, role, SN, tag…" style={{padding:"7px 10px 7px 28px",borderRadius:8,border:`1.5px solid ${search?"#3b82f6":"#cbd5e1"}`,fontSize:12,width:200,outline:"none"}}/>
+              <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search name, role, SN, tag…" style={{padding:"7px 10px 7px 28px",borderRadius:8,border:`1.5px solid ${search?"#FF6A00":"#cbd5e1"}`,fontSize:12,width:200,outline:"none"}}/>
               {search&&<button onClick={()=>setSearch("")} style={{position:"absolute",right:8,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",cursor:"pointer",color:"#94a3b8",fontSize:14,padding:0}}>×</button>}
             </div>
-            {search&&<span style={{fontSize:12,color:"#3b82f6",fontWeight:600}}>{hlIds.size+whlIds.size} match{hlIds.size+whlIds.size!==1?"es":""}</span>}
-            <button onClick={()=>setShowWFH(true)} style={{...btn("#0ea5e9","#fff")}}>🏠 WFH {wfh.length>0&&<span style={{background:"#fff",color:"#0ea5e9",borderRadius:999,padding:"1px 6px",fontSize:10,fontWeight:800,marginLeft:4}}>{wfh.length}</span>}</button>
-            <button onClick={()=>{setSelected(null);setPanel("addblack");setAddForm({name:"",role:"",row:"",col:""}); }} style={{...btn("#1e293b","#fff")}}>⬛ Add Block</button>
-            <button onClick={()=>{setSelected(null);setPanel("add");setAddForm({name:"",role:"",row:"",col:""});}} style={{...btn("#3b82f6","#fff")}}>＋ Add Person</button>
-            <button onClick={saveMap} style={{...btn(hasUnsaved?"#16a34a":"#f1f5f9",hasUnsaved?"#fff":"#94a3b8"),border:hasUnsaved?"none":"1px solid #e2e8f0",minWidth:80}}>💾 {hasUnsaved?"Save":"Saved"}</button>
+            {search&&<span style={{fontSize:12,color:"#FF6A00",fontWeight:600}}>{hlIds.size+whlIds.size} match{hlIds.size+whlIds.size!==1?"es":""}</span>}
+            <button onClick={()=>setShowWFH(true)} style={{...btn("#16181D","#fff")}}>WFH {wfh.length>0&&<span style={{background:"#fff",color:"#16181D",borderRadius:999,padding:"1px 6px",fontSize:10,fontWeight:800,marginLeft:4}}>{wfh.length}</span>}</button>
+            <button onClick={()=>{setSelected(null);setPanel("addblack");setAddForm({name:"",role:"",row:"",col:""}); }} style={{...btn("#1e293b","#fff")}}>Add block</button>
+            <button onClick={()=>{setSelected(null);setPanel("add");setAddForm({name:"",role:"",row:"",col:""});}} style={{...btn("#FF6A00","#fff")}}>Add person</button>
+            <button onClick={saveMap} style={{...btn(hasUnsaved?"#16a34a":"#f1f5f9",hasUnsaved?"#fff":"#94a3b8"),border:hasUnsaved?"none":"1px solid #e2e8f0",minWidth:80}}>{hasUnsaved?"Save":"Saved"}</button>
           </div>
         </div>
 
         <div style={{fontSize:11,color:"#94a3b8",marginBottom:8}}>
-          {savedAt?<span>{hasUnsaved?"⚠️ Unsaved · ":"✅ "}Last saved: {fmtDate(savedAt)}</span>:<span>{hasUnsaved?"⚠️ Unsaved changes — click 💾 Save":"No save yet — click 💾 Save"}</span>}
+          {savedAt?<span>{hasUnsaved?"⚠️ Unsaved · ":"✅ "}Last saved: {fmtDate(savedAt)}</span>:<span>{hasUnsaved?"⚠️ Unsaved changes — click Save":"No save yet — click Save"}</span>}
         </div>
 
         {/* Resize */}
         <div style={{display:"flex",gap:6,marginBottom:10,alignItems:"center",flexWrap:"wrap"}}>
-          <span style={{fontSize:12,fontWeight:600,color:"#475569"}}>📐 Room size:</span>
+          <span style={{fontSize:12,fontWeight:600,color:"#475569"}}>Room size</span>
           {[["Rows",()=>resizeGrid(-1,0),ROWS,()=>resizeGrid(1,0)],["Cols",()=>resizeGrid(0,-1),COLS,()=>resizeGrid(0,1)]].map(([lbl,dec,val,inc])=>(
             <div key={lbl} style={{display:"flex",alignItems:"center",gap:4,background:"#fff",border:"1px solid #e2e8f0",borderRadius:8,padding:"4px 8px"}}>
               <span style={{fontSize:11,color:"#94a3b8"}}>{lbl}</span>
@@ -414,7 +424,7 @@ function App(){
         <div style={{display:"flex",gap:16,alignItems:"flex-start",flexWrap:"wrap"}}>
           {/* Map */}
           <div style={{background:"#fff",borderRadius:12,border:"1px solid #e2e8f0",padding:12,flex:"1 1 600px",overflowX:"auto"}}>
-            <div style={{textAlign:"center",fontSize:11,color:"#94a3b8",marginBottom:6,letterSpacing:2,textTransform:"uppercase"}}>— Back of Room / Window —</div>
+            <div style={{textAlign:"center",fontSize:11,color:"#94a3b8",marginBottom:6,letterSpacing:2,textTransform:"uppercase"}}>Back of room</div>
             <div style={{display:"grid",gridTemplateColumns:`repeat(${COLS}, 82px)`,gridTemplateRows:`repeat(${ROWS}, 66px)`,gap:3,minWidth:COLS*85}}>
               {Array.from({length:ROWS},(_,r)=>Array.from({length:COLS},(_,c)=>{
                 const row=r+1,col=c+1,key=`${row}-${col}`;
@@ -428,26 +438,26 @@ function App(){
                 const s=cub?(isBlock?{bg:"#1e293b",text:"#fff",border:"#0f172a"}:(roleStyle[cub.role]||roleStyle[""])):null;
                 const cubDevices=cub?.devices||[];
                 if(!cub)return(<div key={key} onDragOver={e=>handleDragOver(e,row,col)} onDrop={e=>handleDrop(e,row,col)}
-                  style={{borderRadius:6,background:isOver?"#bfdbfe":"transparent",border:isOver?"2px dashed #3b82f6":"1px dashed transparent",transition:"background 0.1s"}}/>);
+                  style={{borderRadius:6,background:isOver?"#FFDFC6":"transparent",border:isOver?"2px dashed #FF6A00":"1px dashed transparent",transition:"background 0.1s"}}/>);
                 return(
                   <div key={key} draggable onDragStart={e=>handleDragStart(e,cub)} onDragEnd={handleDragEnd}
                     onDragOver={e=>handleDragOver(e,row,col)} onDrop={e=>handleDrop(e,row,col)} onClick={()=>selectCubicle(cub)}
-                    style={{background:isMatch?"#fef08a":isOver&&dragging?.id!==cub.id?"#bfdbfe":s.bg,
-                      border:isSel?"2px solid #3b82f6":isMatch?"2px solid #eab308":isOver&&dragging?.id!==cub.id?"2px dashed #3b82f6":`1px solid ${s.border}`,
+                    style={{background:isMatch?"#fef08a":isOver&&dragging?.id!==cub.id?"#FFDFC6":s.bg,
+                      border:isSel?"2px solid #FF6A00":isMatch?"2px solid #eab308":isOver&&dragging?.id!==cub.id?"2px dashed #FF6A00":`1px solid ${s.border}`,
                       borderRadius:6,padding:"4px 5px",cursor:"grab",display:"flex",flexDirection:"column",justifyContent:"center",alignItems:"center",
                       textAlign:"center",opacity:isDraggingThis?0.35:isDimmed?0.3:1,
-                      boxShadow:isMatch?"0 0 0 3px rgba(234,179,8,0.35)":isSel?"0 0 0 3px rgba(59,130,246,0.25)":"none",
+                      boxShadow:isMatch?"0 0 0 3px rgba(234,179,8,0.35)":isSel?"0 0 0 3px rgba(255,106,0,0.25)":"none",
                       transform:isMatch?"scale(1.06)":"scale(1)",transition:"all 0.15s",userSelect:"none",position:"relative",zIndex:isMatch?2:1}}>
                     <div style={{position:"absolute",top:2,right:4,fontSize:9,color:isBlock?"#475569":"#cbd5e1"}}>⠿</div>
                     <div style={{fontSize:11,fontWeight:700,color:isBlock?"#94a3b8":"#1e293b",lineHeight:1.2}}>{isBlock?(cub.name||"⬛"):cub.name}</div>
                     {!isBlock&&cub.role&&<div style={{fontSize:9,color:s.text,fontWeight:700,marginTop:2,background:"rgba(255,255,255,0.6)",borderRadius:3,padding:"1px 4px"}}>{cub.role}</div>}
-                    {!isBlock&&cubDevices.length>0&&<div style={{fontSize:9,color:"#94a3b8",marginTop:1}}>📦 {cubDevices.length}</div>}
+                    {!isBlock&&cubDevices.length>0&&<div style={{fontSize:9,color:"#94a3b8",marginTop:1}}>{cubDevices.length}</div>}
                   </div>
                 );
               }))}
             </div>
-            <div style={{textAlign:"center",fontSize:11,color:"#94a3b8",marginTop:6,letterSpacing:2,textTransform:"uppercase"}}>— Front of Room —</div>
-            {dragging&&<div style={{textAlign:"center",marginTop:6,fontSize:12,color:"#3b82f6",fontWeight:600}}>🔄 Drop to move or swap</div>}
+            <div style={{textAlign:"center",fontSize:11,color:"#94a3b8",marginTop:6,letterSpacing:2,textTransform:"uppercase"}}>Front of room</div>
+            {dragging&&<div style={{textAlign:"center",marginTop:6,fontSize:12,color:"#FF6A00",fontWeight:600}}>Drop to move or swap</div>}
           </div>
 
           {/* Side Panel */}
@@ -455,7 +465,7 @@ function App(){
             {(panel==="add"||panel==="addblack")&&!selected&&(
               <div style={{background:"#fff",borderRadius:12,border:`1px solid ${panel==="addblack"?"#334155":"#e2e8f0"}`,padding:16}}>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
-                  <div style={{fontSize:15,fontWeight:700}}>{panel==="addblack"?"⬛ Add Block":"➕ Add Person"}</div>
+                  <div style={{fontSize:15,fontWeight:700}}>{panel==="addblack"?"Add block":"Add person"}</div>
                   <button onClick={()=>setPanel("view")} style={{background:"none",border:"none",fontSize:18,cursor:"pointer",color:"#94a3b8"}}>×</button>
                 </div>
                 {panel==="addblack"&&<div style={{fontSize:12,color:"#64748b",marginBottom:12,background:"#f1f5f9",borderRadius:7,padding:"6px 10px"}}>Blocked/reserved spot. Drag it anywhere after placing.</div>}
@@ -469,7 +479,7 @@ function App(){
                     {ROLES.map(r=><option key={r} value={r}>{r||"— No role —"}</option>)}
                   </select></div>
                 )}
-                <button onClick={panel==="addblack"?addBlock:addPerson} style={{...btn(panel==="addblack"?"#1e293b":"#3b82f6","#fff"),width:"100%",padding:"9px 0",fontSize:13}}>
+                <button onClick={panel==="addblack"?addBlock:addPerson} style={{...btn(panel==="addblack"?"#1e293b":"#FF6A00","#fff"),width:"100%",padding:"9px 0",fontSize:13}}>
                   {panel==="addblack"?"Place Block":"Add to Map"}
                 </button>
               </div>
@@ -477,7 +487,7 @@ function App(){
 
             {!selected&&!["add","addblack"].includes(panel)&&(
               <div style={{background:"#fff",borderRadius:12,border:"1px solid #e2e8f0",padding:20,textAlign:"center",color:"#94a3b8"}}>
-                <div style={{fontSize:32,marginBottom:8}}>👆</div>
+                <div style={{fontSize:32,marginBottom:8}}></div>
                 <div style={{fontSize:13}}>Click a cubicle to manage it</div>
                 <div style={{fontSize:12,marginTop:6,color:"#cbd5e1"}}>Search by name, role, model, SN, or tag</div>
               </div>
@@ -496,9 +506,9 @@ function App(){
 
                 {selected.role!=="__block__"&&(
                   <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:5,marginBottom:12}}>
-                    {[["view","👁 View"],["devices","🖥 Devices"],["person","✏️ Person"]].map(([p,label])=>(
+                    {[["view","View"],["devices","Devices"],["person","Person"]].map(([p,label])=>(
                       <button key={p} onClick={()=>{setPanel(p);if(p==="devices")setDevicesForm((selected.devices||[]).map(d=>({...d})));if(p==="person")setPersonForm({name:selected.name,role:selected.role});}}
-                        style={{...btn(panel===p?"#3b82f6":"#f1f5f9",panel===p?"#fff":"#475569"),padding:"7px 0",fontSize:11}}>{label}</button>
+                        style={{...btn(panel===p?"#FF6A00":"#f1f5f9",panel===p?"#fff":"#475569"),padding:"7px 0",fontSize:11}}>{label}</button>
                     ))}
                   </div>
                 )}
