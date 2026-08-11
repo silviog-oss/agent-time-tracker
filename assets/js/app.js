@@ -12,7 +12,7 @@ import {
   query, where, serverTimestamp, Timestamp, onSnapshot
 } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
-import { firebaseConfig, ALLOWED_EMAIL_DOMAIN, SUPER_ADMIN_EMAILS } from "./config.js?v=8";
+import { firebaseConfig, ALLOWED_EMAIL_DOMAIN, SUPER_ADMIN_EMAILS } from "./config.js?v=9";
 
 const isSuperAdminEmail = (email) =>
   (SUPER_ADMIN_EMAILS || []).map((e) => e.toLowerCase()).includes((email || "").toLowerCase());
@@ -33,7 +33,7 @@ const C = {
 };
 
 // ---------- App meta ----------
-const APP_VERSION = "v2.3.0";
+const APP_VERSION = "v2.3.1";
 
 // ---------- Global state ----------
 let ME = null;              // { uid, name, email, photo, role }
@@ -412,8 +412,14 @@ async function endActivityDoc(a) {
 const INSTANCE_TYPES = ["Break", "Meeting", "Coaching", "Technical issue", "Late arrival", "Left early", "Absence", "Other"];
 
 async function loadInstances(uid, dayKey) {
-  return (await getDocsArr(query(C.instances, where("user_id", "==", uid), where("date", "==", dayKey))))
-    .sort((a, b) => (ms(a.at) || 0) - (ms(b.at) || 0));
+  try {
+    return (await getDocsArr(query(C.instances, where("user_id", "==", uid), where("date", "==", dayKey))))
+      .sort((a, b) => (ms(a.at) || 0) - (ms(b.at) || 0));
+  } catch (e) {
+    // e.g. rules not published yet — don't let it block the whole page
+    console.warn("Could not load instances:", e.message);
+    return [];
+  }
 }
 async function addInstance(uid, userName, { type, note, hhmm, dayKey }) {
   const [h, m] = (hhmm || "00:00").split(":").map(Number);
