@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Shift — Agent Time Tracking</title>
+  <title>Vulcan</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
@@ -13,7 +13,7 @@
 
   <!-- ============ LOADING SPLASH ============ -->
   <div id="splash" class="splash">
-    <div class="splash-mark">Shift</div>
+    <div class="splash-brand"><span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M3 7h11a6 6 0 0 0 5 3l2-2v4.2A5.8 5.8 0 0 1 15.2 18H12l1.4 3H6.6L8 18H7a4 4 0 0 1-4-4V7Z" fill="currentColor"/><rect x="6" y="21" width="12" height="2" rx="1" fill="currentColor"/></svg></span><div class="splash-mark">Vulcan</div></div>
     <div class="spinner"></div>
   </div>
 
@@ -21,8 +21,8 @@
   <div id="login-screen" class="login-screen hidden">
     <div class="login-card">
       <div class="brand">
-        <span class="brand-dot"></span>
-        <span class="brand-name">Shift</span>
+        <span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M3 7h11a6 6 0 0 0 5 3l2-2v4.2A5.8 5.8 0 0 1 15.2 18H12l1.4 3H6.6L8 18H7a4 4 0 0 1-4-4V7Z" fill="currentColor"/><rect x="6" y="21" width="12" height="2" rx="1" fill="currentColor"/></svg></span>
+        <span class="brand-name">Vulcan</span>
       </div>
       <h1>Agent time tracking</h1>
       <p class="login-sub">Clock in, log what you're working on, and keep an accurate record of your shift.</p>
@@ -32,7 +32,7 @@
       </button>
       <p class="login-note">Use your work Google account. New accounts start as agents.</p>
     </div>
-    <footer class="login-footer">Shift · internal tool · <span class="app-version">v3.0.0</span></footer>
+    <footer class="login-footer">Vulcan · internal tool · <span class="app-version">v3.1.0</span></footer>
   </div>
 
   <!-- ============ APP SHELL ============ -->
@@ -41,8 +41,8 @@
     <!-- Sidebar -->
     <aside class="sidebar">
       <div class="sidebar-brand">
-        <span class="brand-dot"></span>
-        <span class="brand-name">Shift</span>
+        <span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M3 7h11a6 6 0 0 0 5 3l2-2v4.2A5.8 5.8 0 0 1 15.2 18H12l1.4 3H6.6L8 18H7a4 4 0 0 1-4-4V7Z" fill="currentColor"/><rect x="6" y="21" width="12" height="2" rx="1" fill="currentColor"/></svg></span>
+        <span class="brand-name">Vulcan</span>
       </div>
       <nav id="nav" class="nav"><!-- nav items injected by role --></nav>
       <div class="sidebar-user">
@@ -64,6 +64,7 @@
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
         </button>
         <h2 id="view-title" class="view-title">Dashboard</h2>
+        <button id="preview-exit" class="btn btn-outline btn-sm preview-exit hidden">Exit preview</button>
         <button id="bell-btn" class="icon-btn bell-btn hidden" title="IT notifications" aria-label="IT notifications">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
           <span id="bell-count" class="bell-count hidden">0</span>
@@ -71,7 +72,7 @@
         <div class="topbar-clock" id="topbar-clock"></div>
       </header>
       <div id="view" class="view"><!-- active view injected here --></div>
-      <footer class="app-footer"><span class="app-version">v3.0.0</span></footer>
+      <footer class="app-footer"><span class="app-version">v3.1.0</span></footer>
     </main>
 
     <div id="scrim" class="scrim"></div>
@@ -80,6 +81,6 @@
   <!-- Toast -->
   <div id="toast" class="toast hidden"></div>
 
-  <script type="module" src="assets/js/app.js?v=14"></script>
+  <script type="module" src="assets/js/app.js?v=17"></script>
 </body>
 </html>

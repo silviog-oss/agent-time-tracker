@@ -12,7 +12,7 @@ import {
   query, where, serverTimestamp, Timestamp, onSnapshot
 } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
-import { firebaseConfig, ALLOWED_EMAIL_DOMAIN, SUPER_ADMIN_EMAILS } from "./config.js?v=14";
+import { firebaseConfig, ALLOWED_EMAIL_DOMAIN, SUPER_ADMIN_EMAILS } from "./config.js?v=17";
 
 const isSuperAdminEmail = (email) =>
   (SUPER_ADMIN_EMAILS || []).map((e) => e.toLowerCase()).includes((email || "").toLowerCase());
@@ -36,7 +36,7 @@ const C = {
 };
 
 // ---------- App meta ----------
-const APP_VERSION = "v3.0.0";
+const APP_VERSION = "v3.1.0";
 
 // ---------- Global state ----------
 let ME = null;              // { uid, name, email, photo, role }
@@ -62,8 +62,8 @@ const CAP = {
   adminDash:      ["super_admin", "it_admin", "admin", "supervisor"],
   management:     ["super_admin", "it_admin", "admin"],
   mapEdit:        ["super_admin", "it_admin", "admin"],
-  seeTasks:       ["super_admin", "it_admin", "admin", "supervisor"],
-  addTasks:       ["super_admin", "it_admin", "admin", "supervisor"],
+  seeTasks:       ["super_admin", "it_admin", "admin"],
+  addTasks:       ["super_admin", "it_admin", "admin"],
   itStaff:        ["super_admin", "it_admin", "admin", "it_agent"],
   createReq:      ["super_admin", "it_admin", "admin", "it_agent", "supervisor"],
   shoppingCreate: ["super_admin", "it_admin", "admin", "supervisor"],
@@ -248,19 +248,21 @@ function navFor(role) {
   const D = ["dashboard", "Dashboard", icon("grid")];
   const MAP = ["map", "Map", icon("map")];
   const IT = ["it", "IT Service", icon("bolt")];
+  const SHOP = ["shopping", "Shopping", icon("cart")];
   const INV = ["inventory", "Inventory", icon("box")];
   const TASKS = ["tasks", "Tasks", icon("check")];
+  const MYTASKS = ["my-tasks", "My Tasks", icon("check")];
   const AGENTS = ["agents", "Agents", icon("users")];
   const ACT = ["activity", "Activity", icon("list")];
   const REP = ["reports", "Time Reports", icon("chart")];
   const SET = ["settings", "Settings", icon("cog")];
   switch (role) {
     case "agent":       return [D, MAP];
-    case "it_agent":    return [D, IT, INV, MAP];
-    case "supervisor":  return [D, TASKS, IT, MAP];
+    case "it_agent":    return [D, MYTASKS, IT, SHOP, INV, MAP];
+    case "supervisor":  return [D, MYTASKS, IT, SHOP, MAP];
     case "it_admin":
-    case "admin":       return [D, AGENTS, TASKS, ACT, REP, IT, INV, MAP];
-    case "super_admin": return [D, AGENTS, TASKS, ACT, REP, IT, INV, MAP, SET];
+    case "admin":       return [D, AGENTS, TASKS, ACT, REP, IT, SHOP, INV, MAP];
+    case "super_admin": return [D, AGENTS, TASKS, ACT, REP, IT, SHOP, INV, MAP, SET];
     default:            return [D, MAP];
   }
 }
@@ -277,6 +279,16 @@ function renderShell() {
   navEl.querySelectorAll(".nav-item").forEach((b) =>
     b.addEventListener("click", () => { go(b.dataset.route); closeMobileNav(); })
   );
+  const pe = $("preview-exit");
+  if (pe) {
+    if (PREVIEW_ROLE) {
+      pe.textContent = `Exit ${ROLE_LABELS[PREVIEW_ROLE] || PREVIEW_ROLE} preview`;
+      pe.classList.remove("hidden");
+      pe.onclick = () => { PREVIEW_ROLE = null; renderShell(); go("dashboard"); };
+    } else {
+      pe.classList.add("hidden");
+    }
+  }
 }
 
 // mobile nav
@@ -550,13 +562,14 @@ const TITLES = {
   dashboard: "Dashboard", "my-tasks": "My Tasks", "my-activity": "My Activity",
   "my-time": "My Time", profile: "Profile", agents: "Agents", tasks: "Tasks",
   activity: "Activity", reports: "Time Reports", map: "Office Map",
-  it: "IT Service", inventory: "Inventory", settings: "Settings",
+  it: "IT Service", shopping: "Shopping", inventory: "Inventory", settings: "Settings",
 };
 function render() {
   clearView();
   titleEl.textContent = TITLES[ROUTE] || "Dashboard";
   if (ROUTE === "map") return viewMap(pendingHighlight);
   if (ROUTE === "it") return viewITService();
+  if (ROUTE === "shopping") return viewShopping();
   if (ROUTE === "inventory") return viewInventory();
   if (ROUTE === "dashboard") return can("adminDash") ? viewAdminDashboard() : viewAgentDashboard();
   if (ROUTE === "my-tasks") return viewMyTasks();
@@ -587,15 +600,12 @@ const IT_CATEGORIES = ["Internet issue", "Slack issue", "Tailscale issue", "Audi
 async function viewITService() {
   viewEl.innerHTML = skeleton();
   const staff = can("itStaff");
-  const [reqs, shop, users] = await Promise.all([
+  const [reqs, users] = await Promise.all([
     getDocsArr(C.it_requests).catch(() => []),
-    can("shoppingView") || can("shoppingCreate") ? getDocsArr(C.shopping).catch(() => []) : Promise.resolve([]),
     getDocsArr(C.users).catch(() => []),
   ]);
   reqs.sort((a, b) => (ms(b.created_at) || 0) - (ms(a.created_at) || 0));
-  shop.sort((a, b) => (ms(b.created_at) || 0) - (ms(a.created_at) || 0));
 
-  // which requests does this person see?
   const myReqs = staff ? reqs : reqs.filter((r) => r.created_by === ME.uid);
   const openReqs = myReqs.filter((r) => r.status !== "done");
   const doneReqs = myReqs.filter((r) => r.status === "done");
@@ -606,6 +616,18 @@ async function viewITService() {
     return `<span class="badge ${cls}"><span class="dot ${cls}"></span>${label}</span>`;
   };
 
+  const body = (r) => {
+    if (r.category === "Purchase request" && r.purchase) {
+      const p = r.purchase;
+      return `<div class="it-details">
+        <div><b>Wants:</b> ${esc(p.item || "—")}</div>
+        ${p.link ? `<div><b>Link:</b> <a href="${esc(p.link)}" target="_blank" rel="noopener">${esc(p.link)}</a></div>` : ""}
+        ${p.why ? `<div><b>Why:</b> ${esc(p.why)}</div>` : ""}
+      </div>`;
+    }
+    return r.details ? `<p class="it-details">${esc(r.details)}</p>` : "";
+  };
+
   const reqCard = (r) => `
     <div class="it-card" data-id="${r.id}">
       <div class="it-head">
@@ -613,7 +635,7 @@ async function viewITService() {
         <span class="em">${fmtClock(ms(r.created_at))} · ${fmtDate(r.date || dateKeyFromMs(ms(r.created_at) || Date.now()))}</span>
       </div>
       <div class="it-for">Needs help: <b>${esc(r.for_name || "—")}</b> · from ${esc(r.created_by_name || "")}</div>
-      ${r.details ? `<p class="it-details">${esc(r.details)}</p>` : ""}
+      ${body(r)}
       ${r.status !== "open" ? `<div class="it-meta">Accepted by <b>${esc(r.accepted_by_name || "—")}</b></div>` : ""}
       ${r.status === "done" ? `<div class="it-resolution">Resolved: ${esc(r.resolution || "—")}</div>` : ""}
       <div class="it-actions">
@@ -624,48 +646,21 @@ async function viewITService() {
       </div>
     </div>`;
 
-  const shoppingSection = can("shoppingView") ? `
-    <div class="card card-pad mt-18">
-      <div class="section-title">Shopping list (IT only)</div>
-      ${shop.filter((s) => s.status !== "done").length || shop.filter((s) => s.status === "done").length
-        ? `<div class="it-list">
-            ${shop.filter((s) => s.status !== "done").map(shopRow).join("")}
-            ${shop.filter((s) => s.status === "done").map(shopRow).join("")}
-          </div>`
-        : `<div class="em" style="padding:6px 0">No shopping items.</div>`}
-    </div>` : "";
-
-  function shopRow(s) {
-    return `<div class="it-shop-row ${s.status === "done" ? "done" : ""}" data-id="${s.id}">
-      <div class="it-shop-main">
-        <div class="nm">${esc(s.item_name)} ${s.status === "done" ? '<span class="badge working">bought</span>' : ""}</div>
-        <div class="em">${esc(s.reason || "")}${s.amazon_link ? ` · <a href="${esc(s.amazon_link)}" target="_blank" rel="noopener">link</a>` : ""} · from ${esc(s.created_by_name || "")}</div>
-      </div>
-      ${can("shoppingView") && s.status !== "done" ? `<button class="btn btn-dark btn-sm" data-shopdone="${s.id}">Mark bought</button>` : ""}
-    </div>`;
-  }
-
   viewEl.innerHTML = `
     <div class="page-head">
       <div class="section-title" style="margin:0">${staff ? "IT requests" : "My IT requests"}</div>
       <div class="it-topbtns">
         ${can("createReq") ? `<button class="btn btn-primary btn-sm" id="new-req">New IT request</button>` : ""}
-        ${can("shoppingCreate") ? `<button class="btn btn-outline btn-sm" id="new-shop">Request shopping item</button>` : ""}
       </div>
     </div>
 
     <div class="it-list">
       ${openReqs.length ? openReqs.map(reqCard).join("") : `<div class="card"><div class="empty"><strong>No open requests</strong>${can("createReq") ? "Create one with the button above." : "You're all caught up."}</div></div>`}
     </div>
-    ${doneReqs.length ? `<div class="section-title mt-18" style="margin-top:22px">Resolved</div><div class="it-list">${doneReqs.slice(0, 20).map(reqCard).join("")}</div>` : ""}
+    ${doneReqs.length ? `<div class="section-title mt-18" style="margin-top:22px">Resolved</div><div class="it-list">${doneReqs.slice(0, 20).map(reqCard).join("")}</div>` : ""}`;
 
-    ${shoppingSection}`;
-
-  // create request
   $("new-req") && $("new-req").addEventListener("click", () => openNewRequestModal(users));
-  $("new-shop") && $("new-shop").addEventListener("click", () => openShoppingModal());
 
-  // accept / resolve / locate / cancel
   viewEl.querySelectorAll("[data-accept]").forEach((b) => b.addEventListener("click", guard(async () => {
     await updateDoc(doc(C.it_requests, b.dataset.accept), {
       status: "accepted", accepted_by: ME.uid, accepted_by_name: ME.name, accepted_at: Timestamp.now(),
@@ -680,10 +675,50 @@ async function viewITService() {
     toast("Request cancelled");
     viewITService();
   })));
+}
+
+// ============================================================
+//  SHOPPING LIST — its own page
+// ============================================================
+async function viewShopping() {
+  viewEl.innerHTML = skeleton();
+  const canViewAll = can("shoppingView");
+  const shopAll = await getDocsArr(C.shopping).catch(() => []);
+  const shop = (canViewAll ? shopAll : shopAll.filter((s) => s.created_by === ME.uid))
+    .sort((a, b) => (a.status === "done") - (b.status === "done") || (ms(b.created_at) || 0) - (ms(a.created_at) || 0));
+
+  const row = (s) => `
+    <div class="it-shop-row ${s.status === "done" ? "done" : ""}" data-id="${s.id}">
+      <div class="it-shop-main">
+        <div class="nm">${esc(s.item_name)} ${s.status === "done" ? '<span class="badge working">bought</span>' : ""}</div>
+        <div class="em">${esc(s.reason || "")}${s.amazon_link ? ` · <a href="${esc(s.amazon_link)}" target="_blank" rel="noopener">link</a>` : ""} · from ${esc(s.created_by_name || "")}</div>
+      </div>
+      <div class="it-actions" style="margin:0">
+        ${canViewAll && s.status !== "done" ? `<button class="btn btn-dark btn-sm" data-shopdone="${s.id}">Mark bought</button>` : ""}
+        ${(canViewAll || s.created_by === ME.uid) ? `<button class="btn btn-outline btn-sm" data-shopdel="${s.id}">Delete</button>` : ""}
+      </div>
+    </div>`;
+
+  viewEl.innerHTML = `
+    <div class="page-head">
+      <div class="section-title" style="margin:0">${canViewAll ? "Shopping list" : "My shopping requests"}</div>
+      ${can("shoppingCreate") ? `<button class="btn btn-primary btn-sm" id="new-shop">Request item</button>` : ""}
+    </div>
+    <div class="card card-pad">
+      ${shop.length ? `<div class="it-list">${shop.map(row).join("")}</div>`
+        : `<div class="empty"><strong>Nothing here yet</strong>${can("shoppingCreate") ? "Request an item with the button above." : "No shopping items."}</div>`}
+    </div>`;
+
+  $("new-shop") && $("new-shop").addEventListener("click", () => openShoppingModal());
   viewEl.querySelectorAll("[data-shopdone]").forEach((b) => b.addEventListener("click", guard(async () => {
     await updateDoc(doc(C.shopping, b.dataset.shopdone), { status: "done", done_by: ME.uid, done_by_name: ME.name, done_at: Timestamp.now() });
     toast("Marked as bought");
-    viewITService();
+    viewShopping();
+  })));
+  viewEl.querySelectorAll("[data-shopdel]").forEach((b) => b.addEventListener("click", guard(async () => {
+    await deleteDoc(doc(C.shopping, b.dataset.shopdel));
+    toast("Item deleted");
+    viewShopping();
   })));
 }
 
@@ -696,25 +731,58 @@ function openNewRequestModal(users) {
     <datalist id="req-people">${people.map((p) => `<option value="${esc(p.name)}">`).join("")}</datalist>
     <label class="field-label" style="margin-top:12px">Category</label>
     <select id="req-cat" class="modal-input">${IT_CATEGORIES.map((c) => `<option>${c}</option>`).join("")}</select>
-    <label class="field-label" style="margin-top:12px">What's going on?</label>
-    <textarea id="req-details" class="modal-textarea" placeholder="Describe the issue"></textarea>
+
+    <div id="req-generic">
+      <label class="field-label" style="margin-top:12px">What's going on?</label>
+      <textarea id="req-details" class="modal-textarea" placeholder="Describe the issue"></textarea>
+    </div>
+
+    <div id="req-purchase" class="hidden">
+      <label class="field-label" style="margin-top:12px">What do you want?</label>
+      <input id="req-item" class="modal-input" placeholder="e.g. Logitech M185 mouse" />
+      <label class="field-label" style="margin-top:12px">Link to the item</label>
+      <input id="req-link" class="modal-input" placeholder="https://amazon.com.mx/..." />
+      <label class="field-label" style="margin-top:12px">Why do you need it?</label>
+      <textarea id="req-why" class="modal-textarea" placeholder="Reason"></textarea>
+    </div>
+
     <div class="modal-actions">
       <button class="btn btn-outline btn-sm" id="req-cancel">Cancel</button>
       <button class="btn btn-primary btn-sm" id="req-send">Send request</button>
     </div>
   `);
+  const catSel = document.getElementById("req-cat");
+  const syncFields = () => {
+    const purchase = catSel.value === "Purchase request";
+    document.getElementById("req-purchase").classList.toggle("hidden", !purchase);
+    document.getElementById("req-generic").classList.toggle("hidden", purchase);
+  };
+  catSel.addEventListener("change", syncFields);
+  syncFields();
+
   document.getElementById("req-cancel").addEventListener("click", closeModal);
   document.getElementById("req-send").addEventListener("click", guard(async () => {
     const for_name = document.getElementById("req-for").value.trim();
-    const category = document.getElementById("req-cat").value;
-    const details = document.getElementById("req-details").value.trim();
+    const category = catSel.value;
     if (!for_name) { toast("Who needs help?", true); return; }
-    await addDoc(C.it_requests, {
-      for_name, category, details, status: "open",
+    const base = {
+      for_name, category, status: "open",
       created_by: ME.uid, created_by_name: ME.name, created_by_email: ME.email,
       accepted_by: null, accepted_by_name: null, resolution: "",
       date: todayKey(), created_at: Timestamp.now(),
-    });
+    };
+    if (category === "Purchase request") {
+      const item = document.getElementById("req-item").value.trim();
+      const link = document.getElementById("req-link").value.trim();
+      const why = document.getElementById("req-why").value.trim();
+      if (!item) { toast("What do you want to buy?", true); return; }
+      base.details = "";
+      base.purchase = { item, link, why };
+    } else {
+      base.details = document.getElementById("req-details").value.trim();
+      base.purchase = null;
+    }
+    await addDoc(C.it_requests, base);
     closeModal();
     toast("Request sent to IT");
     viewITService();
@@ -769,7 +837,7 @@ function openShoppingModal() {
     });
     closeModal();
     toast("Added to shopping list");
-    viewITService();
+    viewShopping();
   }));
   setTimeout(() => document.getElementById("shop-name")?.focus(), 40);
 }
@@ -1852,6 +1920,7 @@ function icon(name) {
     bolt: '<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>',
     box: '<path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/>',
     bell: '<path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/>',
+    cart: '<circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/>',
     clock: '<circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 14"/>',
     user: '<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
     users: '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
