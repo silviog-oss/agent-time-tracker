@@ -12,8 +12,8 @@ import {
   query, where, serverTimestamp, Timestamp, onSnapshot
 } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
-import { firebaseConfig, ALLOWED_EMAIL_DOMAIN, SUPER_ADMIN_EMAILS } from "./config.js?v=21";
-import { INVENTORY_SEED, INVENTORY_STATUSES, INVENTORY_MODELS } from "./inventory-seed.js?v=21";
+import { firebaseConfig, ALLOWED_EMAIL_DOMAIN, SUPER_ADMIN_EMAILS } from "./config.js?v=22";
+import { INVENTORY_SEED, INVENTORY_STATUSES, INVENTORY_MODELS, INVENTORY_CATEGORIES, CATEGORY_MAX } from "./inventory-seed.js?v=22";
 
 const isSuperAdminEmail = (email) =>
   (SUPER_ADMIN_EMAILS || []).map((e) => e.toLowerCase()).includes((email || "").toLowerCase());
@@ -38,7 +38,7 @@ const C = {
 };
 
 // ---------- App meta ----------
-const APP_VERSION = "v3.3.0";
+const APP_VERSION = "v3.4.0";
 
 // ---------- Global state ----------
 let ME = null;              // { uid, name, email, photo, role }
@@ -48,6 +48,7 @@ let tickHandler = null;     // function called every second by the global interv
 let unsubscribers = [];     // onSnapshot cleanups for the current view
 let bellUnsub = null;       // IT notifications listener
 let pendingHighlight = null;// name to highlight on the map after accepting a request
+let INV_TAB = "CPU";      // active Inventory category tab
 
 // ---------- Roles & capabilities ----------
 const ROLE_LABELS = {
@@ -667,7 +668,7 @@ function render() {
 function viewMap(highlight) {
   const h = highlight ? "&highlight=" + encodeURIComponent(highlight) : "";
   pendingHighlight = null;
-  viewEl.innerHTML = `<div class="map-wrap"><iframe class="map-frame" src="assets/office-map.html?v=21${h}" title="Office Map"></iframe></div>`;
+  viewEl.innerHTML = `<div class="map-wrap"><iframe class="map-frame" src="assets/office-map.html?v=22${h}" title="Office Map"></iframe></div>`;
 }
 
 // IT Service board + Inventory placeholder are defined lower in the file.
@@ -941,14 +942,14 @@ async function viewInventory() {
     viewEl.innerHTML = `
       <div class="card card-pad">
         <div class="section-title">Workstation inventory</div>
-        <p class="greeting-sub">No inventory loaded yet. Import the ${INVENTORY_SEED.length} workstations from the Coda table to get started.</p>
-        <button class="btn btn-primary btn-sm" id="inv-seed">Import ${INVENTORY_SEED.length} workstations</button>
+        <p class="greeting-sub">No inventory loaded yet. Import the ${INVENTORY_SEED.length} CPUs from the Coda table to get started.</p>
+        <button class="btn btn-primary btn-sm" id="inv-seed">Import ${INVENTORY_SEED.length} CPUs</button>
       </div>`;
     $("inv-seed").addEventListener("click", guard(async () => {
       const btn = $("inv-seed");
       btn.disabled = true; btn.textContent = "Importing…";
       for (const r of INVENTORY_SEED) {
-        await addDoc(C.inventory, { ...r, notes: "", created_at: Timestamp.now() });
+        await addDoc(C.inventory, { ...r, tag: "", notes: "", created_at: Timestamp.now() });
       }
       toast("Inventory imported");
       viewInventory();
@@ -956,83 +957,103 @@ async function viewInventory() {
     return;
   }
 
-  items.sort((a, b) => (a.assigned_to || "").localeCompare(b.assigned_to || ""));
+  const catOf = (i) => i.category || "CPU";
+  const isUnassigned = (i) => !((i.assigned_to || "").trim());
+  const TABS = [...INVENTORY_CATEGORIES, "Unassigned"];
+  if (!TABS.includes(INV_TAB)) INV_TAB = "CPU";
 
-  // duplicate serials are a real data problem — surface them
   const counts = {};
-  items.forEach((i) => { const s = (i.serial || "").trim(); if (s) counts[s] = (counts[s] || 0) + 1; });
-  const dupes = Object.entries(counts).filter(([, n]) => n > 1);
+  TABS.forEach((t) => {
+    counts[t] = t === "Unassigned"
+      ? items.filter(isUnassigned).length
+      : items.filter((i) => catOf(i) === t).length;
+  });
 
-  const byStatus = {};
-  items.forEach((i) => { byStatus[i.status || "—"] = (byStatus[i.status || "—"] || 0) + 1; });
+  const shown = (INV_TAB === "Unassigned"
+    ? items.filter(isUnassigned)
+    : items.filter((i) => catOf(i) === INV_TAB)
+  ).sort((a, b) => (a.assigned_to || "zzz").localeCompare(b.assigned_to || "zzz"));
+
+  // duplicate serials across the whole inventory
+  const serialCount = {};
+  items.forEach((i) => { const v = (i.serial || "").trim(); if (v) serialCount[v] = (serialCount[v] || 0) + 1; });
+  const dupes = Object.values(serialCount).filter((n) => n > 1).length;
 
   const row = (i) => `
     <tr data-id="${i.id}">
       <td><input class="iv-assigned" value="${esc(i.assigned_to || "")}" placeholder="Unassigned" /></td>
+      <td><select class="iv-cat">${INVENTORY_CATEGORIES.map((c) => `<option ${catOf(i) === c ? "selected" : ""}>${c}</option>`).join("")}</select></td>
       <td><input class="iv-model" value="${esc(i.model || "")}" list="iv-models" placeholder="Model" /></td>
-      <td><input class="iv-serial ${counts[(i.serial || "").trim()] > 1 ? "dupe" : ""}" value="${esc(i.serial || "")}" placeholder="Serial" /></td>
+      <td><input class="iv-serial ${serialCount[(i.serial || "").trim()] > 1 ? "dupe" : ""}" value="${esc(i.serial || "")}" placeholder="Serial" /></td>
       <td><input class="iv-tag" value="${esc(i.tag || "")}" placeholder="Tag" /></td>
-      <td><select class="iv-status">${INVENTORY_STATUSES.map((s) => `<option ${((i.status || "Assigned") === s) ? "selected" : ""}>${s}</option>`).join("")}</select></td>
-      <td><input class="iv-since" type="date" value="${esc(i.since || "")}" /></td>
+      <td><select class="iv-status">${INVENTORY_STATUSES.map((st) => `<option ${((i.status || "Assigned") === st) ? "selected" : ""}>${st}</option>`).join("")}</select></td>
       <td class="iv-actions">
         <button class="btn btn-outline btn-sm iv-save">Save</button>
-        <button class="btn btn-danger btn-sm iv-del">Delete</button>
+        ${isUnassigned(i) ? `<button class="btn btn-danger btn-sm iv-del">Delete</button>`
+          : `<button class="btn btn-outline btn-sm iv-release">Unassign</button>`}
       </td>
     </tr>`;
 
   viewEl.innerHTML = `
     <div class="page-head">
-      <div class="section-title" style="margin:0">Workstations (${items.length})</div>
+      <div class="section-title" style="margin:0">Inventory (${items.length} items)</div>
       <div class="it-topbtns">
         <button class="btn btn-outline btn-sm" id="inv-csv">Export CSV</button>
-        <button class="btn btn-primary btn-sm" id="inv-add">Add workstation</button>
+        <button class="btn btn-primary btn-sm" id="inv-add">Add item</button>
       </div>
     </div>
 
-    <div class="tiles">
-      ${Object.entries(byStatus).map(([s, n]) => `<div class="tile"><div class="t-label">${esc(s)}</div><div class="t-value">${n}</div></div>`).join("")}
+    <div class="inv-tabs">
+      ${TABS.map((t) => `<button class="inv-tab ${t === INV_TAB ? "active" : ""}" data-tab="${t}">${t} <span>${counts[t]}</span></button>`).join("")}
     </div>
 
-    ${dupes.length ? `<div class="inv-warn">
-      <b>${dupes.length} serial number${dupes.length === 1 ? "" : "s"} used on more than one machine</b> — likely copy/paste errors carried over from Coda. Highlighted in red below.
-    </div>` : ""}
+    ${dupes ? `<div class="inv-warn"><b>${dupes} serial number${dupes === 1 ? "" : "s"} appear on more than one item</b> — highlighted in red.</div>` : ""}
 
     <div class="filters">
-      <div class="field"><label>Search</label><input id="inv-search" placeholder="Name, model, or serial" /></div>
+      <div class="field"><label>Search</label><input id="inv-search" placeholder="Name, model, serial or tag" /></div>
     </div>
 
     <datalist id="iv-models">${INVENTORY_MODELS.map((m) => `<option value="${m}">`).join("")}</datalist>
     <div class="card table-wrap">
-      <table class="inv-table"><thead><tr>
-        <th>Assigned to</th><th>Model</th><th>Serial number</th><th>Asset tag</th><th>Status</th><th>Since</th><th></th>
-      </tr></thead><tbody id="inv-body">${items.map(row).join("")}</tbody></table>
+      ${shown.length ? `<table class="inv-table"><thead><tr>
+        <th>Assigned to</th><th>Category</th><th>Model</th><th>Serial number</th><th>Asset tag</th><th>Status</th><th></th>
+      </tr></thead><tbody id="inv-body">${shown.map(row).join("")}</tbody></table>`
+        : `<div class="empty"><strong>Nothing in ${esc(INV_TAB)}</strong>${INV_TAB === "Unassigned" ? "Everything is assigned." : "Add an item or assign one from the map."}</div>`}
     </div>`;
 
-  const wire = () => {
-    viewEl.querySelectorAll("#inv-body tr").forEach((tr) => {
-      const id = tr.dataset.id;
-      tr.querySelector(".iv-save").addEventListener("click", guard(async () => {
-        await updateDoc(doc(C.inventory, id), {
-          assigned_to: tr.querySelector(".iv-assigned").value.trim(),
-          model: tr.querySelector(".iv-model").value.trim(),
-          serial: tr.querySelector(".iv-serial").value.trim(),
-          tag: tr.querySelector(".iv-tag").value.trim(),
-          status: tr.querySelector(".iv-status").value,
-          since: tr.querySelector(".iv-since").value,
-        });
-        toast("Saved");
-        viewInventory();
-      }));
-      tr.querySelector(".iv-del").addEventListener("click", guard(async () => {
-        await deleteDoc(doc(C.inventory, id));
-        toast("Deleted");
-        viewInventory();
-      }));
-    });
-  };
-  wire();
+  viewEl.querySelectorAll(".inv-tab").forEach((b) =>
+    b.addEventListener("click", () => { INV_TAB = b.dataset.tab; viewInventory(); }));
 
-  $("inv-search").addEventListener("input", (e) => {
+  viewEl.querySelectorAll("#inv-body tr").forEach((tr) => {
+    const id = tr.dataset.id;
+    tr.querySelector(".iv-save").addEventListener("click", guard(async () => {
+      const who = tr.querySelector(".iv-assigned").value.trim();
+      await updateDoc(doc(C.inventory, id), {
+        assigned_to: who,
+        category: tr.querySelector(".iv-cat").value,
+        model: tr.querySelector(".iv-model").value.trim(),
+        serial: tr.querySelector(".iv-serial").value.trim(),
+        tag: tr.querySelector(".iv-tag").value.trim(),
+        status: who ? tr.querySelector(".iv-status").value : "Unassigned",
+      });
+      toast("Saved");
+      viewInventory();
+    }));
+    const rel = tr.querySelector(".iv-release");
+    rel && rel.addEventListener("click", guard(async () => {
+      await updateDoc(doc(C.inventory, id), { assigned_to: "", status: "Unassigned" });
+      toast("Moved to Unassigned");
+      viewInventory();
+    }));
+    const del = tr.querySelector(".iv-del");
+    del && del.addEventListener("click", guard(async () => {
+      await deleteDoc(doc(C.inventory, id));
+      toast("Deleted");
+      viewInventory();
+    }));
+  });
+
+  $("inv-search") && $("inv-search").addEventListener("input", (e) => {
     const q = e.target.value.toLowerCase();
     viewEl.querySelectorAll("#inv-body tr").forEach((tr) => {
       const hay = [...tr.querySelectorAll("input")].map((i) => i.value).join(" ").toLowerCase();
@@ -1042,21 +1063,22 @@ async function viewInventory() {
 
   $("inv-add").addEventListener("click", guard(async () => {
     await addDoc(C.inventory, {
-      assigned_to: "", model: "", serial: "", tag: "", status: "Spare", since: "", notes: "",
+      assigned_to: "", category: INV_TAB === "Unassigned" ? "CPU" : INV_TAB,
+      model: "", serial: "", tag: "", status: "Unassigned", since: "", notes: "",
       created_at: Timestamp.now(),
     });
-    toast("Row added");
+    toast("Item added");
     viewInventory();
   }));
 
   $("inv-csv").addEventListener("click", () => {
-    const rows = [["Assigned To", "Model", "Serial Number", "Asset Tag", "Status", "Since"]];
-    items.forEach((i) => rows.push([i.assigned_to || "", i.model || "", i.serial || "", i.tag || "", i.status || "", i.since || ""]));
+    const rows = [["Assigned To", "Category", "Model", "Serial Number", "Asset Tag", "Status"]];
+    items.forEach((i) => rows.push([i.assigned_to || "", catOf(i), i.model || "", i.serial || "", i.tag || "", i.status || ""]));
     const csv = rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\r\n");
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
-    a.href = url; a.download = `workstations_${todayKey()}.csv`; a.click();
+    a.href = url; a.download = `inventory_${todayKey()}.csv`; a.click();
     URL.revokeObjectURL(url);
     toast("CSV exported");
   });

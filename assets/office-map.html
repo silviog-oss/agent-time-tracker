@@ -52,28 +52,44 @@
         cb(list);
       }, (err) => console.warn("inventory sync error:", err.message));
     },
-    // Write a person's Computer device straight into the inventory collection.
-    async syncPersonToInventory(personName, dev) {
+    // Reconcile ALL of a person's devices with the inventory collection.
+    // Devices removed from the person are NOT deleted — they become Unassigned.
+    async syncPersonDevices(personName, devices) {
       if (!personName) return false;
-      const snap = await getDocs(query(invCol, where("assigned_to", "==", personName)));
-      const patch = {
-        assigned_to: personName,
-        model: dev && dev.model ? dev.model : "",
-        serial: dev && dev.sn ? dev.sn : "",
-        tag: dev && dev.tag ? dev.tag : "",
-        status: "Assigned",
-        updated_from: "map",
-        updated_at: Date.now(),
-      };
-      if (!snap.empty) {
-        await updateDoc(doc(invCol, snap.docs[0].id), patch);
-      } else {
-        // no exact name match — try a case-insensitive scan before creating
-        const all = await getDocs(invCol);
-        let hit = null;
-        all.forEach((d) => { if (!hit && norm(d.data().assigned_to) === norm(personName)) hit = d.id; });
-        if (hit) await updateDoc(doc(invCol, hit), patch);
-        else await addDoc(invCol, { ...patch, since: "", notes: "", created_at: Date.now() });
+      const all = [];
+      (await getDocs(invCol)).forEach((d) => all.push({ id: d.id, ...d.data() }));
+      const mine = all.filter((i) => norm(i.assigned_to) === norm(personName));
+      const byCat = {};
+      (devices || []).forEach((d) => {
+        const c = d.type || "Extras";
+        (byCat[c] = byCat[c] || []).push(d);
+      });
+      const cats = new Set([...Object.keys(byCat), ...mine.map((i) => i.category || "Extras")]);
+      for (const cat of cats) {
+        const want = (byCat[cat] || []).filter((d) => (d.model || d.sn || d.tag));
+        const have = mine.filter((i) => (i.category || "Extras") === cat);
+        for (let k = 0; k < Math.max(want.length, have.length); k++) {
+          const w = want[k], h = have[k];
+          if (w && h) {
+            await updateDoc(doc(invCol, h.id), {
+              assigned_to: personName, category: cat,
+              model: w.model || "", serial: w.sn || "", tag: w.tag || "",
+              status: "Assigned", updated_at: Date.now(),
+            });
+          } else if (w && !h) {
+            await addDoc(invCol, {
+              assigned_to: personName, category: cat,
+              model: w.model || "", serial: w.sn || "", tag: w.tag || "",
+              status: "Assigned", since: "", notes: "", created_at: Date.now(), updated_at: Date.now(),
+            });
+          } else if (!w && h) {
+            // removed from this person -> return to the unassigned pool
+            await updateDoc(doc(invCol, h.id), {
+              assigned_to: "", status: "Unassigned",
+              released_from: personName, updated_at: Date.now(),
+            });
+          }
+        }
       }
       return true;
     },
@@ -93,9 +109,15 @@ const roleStyle = {
   "KB":              {bg:"#ffedd5",text:"#c2410c",border:"#fdba74"},
   "":                {bg:"#F6F7F8",text:"#94a3b8",border:"#e2e8f0"},
 };
-const DEVICE_TYPES=["Computer","Monitor","Mouse","Headset","Keyboard","Laptop"];
-const deviceIcon={Computer:"🖥️",Monitor:"🖥️",Mouse:"🖱️",Headset:"🎧",Keyboard:"⌨️",Laptop:"💻"};
-const emptyDevice=()=>({type:"Computer",model:"",sn:"",tag:""});
+const DEVICE_TYPES=["CPU","Monitor","Mouse","Keyboard","Headset","Laptop","Extras"];
+const STANDARD_SLOTS=["CPU","Monitor","Mouse","Keyboard","Headset"];
+const MAX_PER_TYPE={Monitor:3,CPU:1,Mouse:1,Keyboard:1,Headset:1,Laptop:1};
+const deviceIcon={CPU:"🖥️",Monitor:"🖥️",Mouse:"🖱️",Headset:"🎧",Keyboard:"⌨️",Laptop:"💻",Extras:"📦"};
+const emptyDevice=()=>({type:"CPU",model:"",sn:"",tag:""});
+// Everyone gets a slot for each standard device type.
+const withStandardSlots=(devs)=>{const out=[...(devs||[])];
+  STANDARD_SLOTS.forEach(t=>{if(!out.some(d=>d.type===t))out.push({type:t,model:"",sn:"",tag:""});});
+  const order=DEVICE_TYPES;return out.sort((a,b)=>order.indexOf(a.type)-order.indexOf(b.type));};
 
 const seed=[
   {id:1,name:"Anahi",role:"Contador",row:1,col:1},
@@ -202,11 +224,9 @@ function App(){
 
   // Map edit -> inventory write (Computer device is the workstation record)
   function pushToInventory(personName, devs){
-    if(!window.ShiftMap||!window.ShiftMap.syncPersonToInventory) return;
+    if(!window.ShiftMap||!window.ShiftMap.syncPersonDevices) return;
     if(!personName) return;
-    const comp=(devs||[]).find(d=>d.type==="Computer"||d.type==="Laptop");
-    if(!comp) return;
-    window.ShiftMap.syncPersonToInventory(personName, comp)
+    window.ShiftMap.syncPersonDevices(personName, devs||[])
       .catch(e=>showToast("Inventory not updated: "+e.message,"error"));
   }
 
@@ -217,10 +237,14 @@ function App(){
     const apply=(list)=>list.map(c=>{
       const rec=invFor(c.name);
       if(!rec) return c;
-      const devs=[...(c.devices||[])];
-      const idx=devs.findIndex(d=>d.type==="Computer"||d.type==="Laptop");
-      const next={type:idx>=0?devs[idx].type:"Computer",model:rec.model||"",sn:rec.serial||"",tag:rec.tag||""};
-      if(idx>=0) devs[idx]={...devs[idx],...next}; else devs.push(next);
+      const recs=inventory.filter(i=>(i.assigned_to||"").trim().toLowerCase()===(c.name||"").trim().toLowerCase());
+      if(!recs.length) return c;
+      const devs=withStandardSlots([]);
+      const used={};
+      recs.forEach(r=>{const cat=r.category||"Extras";used[cat]=(used[cat]||0)+1;
+        const slot=devs.find(d=>d.type===cat&&!d.model&&!d.sn);
+        const item={type:cat,model:r.model||"",sn:r.serial||"",tag:r.tag||""};
+        if(slot){Object.assign(slot,item);}else{devs.push(item);}});
       n++;
       return {...c,devices:devs};
     });
@@ -278,7 +302,7 @@ function App(){
   const toastBg={success:"#16a34a",error:"#dc2626",info:"#1e293b"};
   function showToast(msg,type="info"){setToast(msg);setToastType(type);setTimeout(()=>setToast(""),2400);}
 
-  function selectCubicle(c){if(dragging)return;setSelected(c);setPanel("view");setDevicesForm((c.devices||[]).map(d=>({...d})));setPersonForm({name:c.name,role:c.role});setExpandedDevices({});}
+  function selectCubicle(c){if(dragging)return;setSelected(c);setPanel("view");setDevicesForm(withStandardSlots((c.devices||[]).map(d=>({...d}))));setPersonForm({name:c.name,role:c.role});setExpandedDevices({});}
 
   function resizeGrid(dr,dc){
     const nr=Math.max(1,ROWS+dr),nc=Math.max(1,COLS+dc);
@@ -433,7 +457,7 @@ function App(){
                   </div>
                   {wfh.length===0?<div style={{fontSize:12,color:"#94a3b8",textAlign:"center",padding:"20px 0"}}>No WFH agents</div>
                     :wfh.map(w=>{const ws=roleStyle[w.role]||roleStyle[""];const im=whlIds.has(w.id);
-                      return(<div key={w.id} onClick={()=>{setWfhSelected(w);setWfhPanel("view");setWfhDevicesForm((w.devices||[]).map(d=>({...d})));setWfhExpandedDevices({});}}
+                      return(<div key={w.id} onClick={()=>{setWfhSelected(w);setWfhPanel("view");setWfhDevicesForm(withStandardSlots((w.devices||[]).map(d=>({...d}))));setWfhExpandedDevices({});}}
                         style={{padding:"8px 10px",borderRadius:8,marginBottom:5,cursor:"pointer",border:`1px solid ${wfhSelected?.id===w.id?"#FF6A00":im?"#eab308":ws.border}`,background:im?"#fef08a":wfhSelected?.id===w.id?"#FFF6EF":ws.bg,transition:"all 0.1s"}}>
                         <div style={{fontSize:13,fontWeight:700}}>{w.name}</div>
                         {w.role&&<div style={{fontSize:10,color:ws.text,fontWeight:600}}>{w.role}</div>}
@@ -454,7 +478,7 @@ function App(){
                       </div>
                       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:5,marginBottom:12}}>
                         {[["view","View"],["devices","Devices"]].map(([p,label])=>(
-                          <button key={p} onClick={()=>{setWfhPanel(p);if(p==="devices")setWfhDevicesForm((wfhSelected.devices||[]).map(d=>({...d})));}}
+                          <button key={p} onClick={()=>{setWfhPanel(p);if(p==="devices")setWfhDevicesForm(withStandardSlots((wfhSelected.devices||[]).map(d=>({...d}))));}}
                             style={{...btn(wfhPanel===p?"#FF6A00":"#f1f5f9",wfhPanel===p?"#fff":"#475569"),padding:"7px 0",fontSize:11}}>{label}</button>
                         ))}
                       </div>
@@ -621,7 +645,7 @@ function App(){
                 {selected.role!=="__block__"&&(
                   <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:5,marginBottom:12}}>
                     {[["view","View"],["devices","Devices"],["person","Person"]].map(([p,label])=>(
-                      <button key={p} onClick={()=>{setPanel(p);if(p==="devices")setDevicesForm((selected.devices||[]).map(d=>({...d})));if(p==="person")setPersonForm({name:selected.name,role:selected.role});}}
+                      <button key={p} onClick={()=>{setPanel(p);if(p==="devices")setDevicesForm(withStandardSlots((selected.devices||[]).map(d=>({...d}))));if(p==="person")setPersonForm({name:selected.name,role:selected.role});}}
                         style={{...btn(panel===p?"#FF6A00":"#f1f5f9",panel===p?"#fff":"#475569"),padding:"7px 0",fontSize:11}}>{label}</button>
                     ))}
                   </div>
@@ -631,13 +655,6 @@ function App(){
                   <>
                     {selected.role!=="__block__"&&(
                       <>
-                        {(()=>{const rec=invFor(selected.name);return rec?(
-                          <div style={{marginBottom:10,padding:"8px 10px",background:"#FFF6EF",border:"1px solid #FBD9BC",borderRadius:8}}>
-                            <div style={{fontSize:11,fontWeight:700,color:"#9a4a00",marginBottom:4}}>INVENTORY RECORD</div>
-                            <div style={{fontSize:12,color:"#475569"}}>{rec.model||"—"} · {rec.status||"—"}</div>
-                            <div style={{fontSize:11,color:"#94a3b8",wordBreak:"break-all"}}>{rec.serial||"no serial"}</div>
-                          </div>
-                        ):null;})()}
                         <div style={{fontSize:12,fontWeight:600,color:"#475569",marginBottom:8}}>Devices ({(selected.devices||[]).length})</div>
                         <DeviceList devices={selected.devices} expanded={expandedDevices} setExpanded={setExpandedDevices} onRemove={removeDeviceInline}/>
                         {selected.notes&&<div style={{background:"#fefce8",border:"1px solid #fde047",borderRadius:7,padding:"6px 10px",fontSize:12,color:"#713f12",marginBottom:10}}>📝 {selected.notes}</div>}
@@ -652,6 +669,11 @@ function App(){
                 {panel==="devices"&&devicesForm&&selected.role!=="__block__"&&(
                   <>
                     <div style={{fontSize:12,fontWeight:600,color:"#475569",marginBottom:8}}>Edit Devices</div>
+                    {(()=>{const recs=inventory.filter(i=>(i.assigned_to||"").trim().toLowerCase()===(selected.name||"").trim().toLowerCase());
+                      return (<div style={{marginBottom:10,padding:"8px 10px",background:"#FFF6EF",border:"1px solid #FBD9BC",borderRadius:8}}>
+                        <div style={{fontSize:11,fontWeight:700,color:"#9a4a00"}}>LINKED TO INVENTORY</div>
+                        <div style={{fontSize:11.5,color:"#475569",marginTop:3}}>{recs.length} item{recs.length===1?"":"s"} on record. Saving updates the Inventory tab. Clearing a device returns it to Unassigned instead of deleting it.</div>
+                      </div>);})()}
                     <DeviceEditList form={devicesForm} setForm={setDevicesForm}/>
                     <div style={{display:"flex",gap:6}}><button onClick={()=>setPanel("view")} style={{...btn("#f1f5f9","#475569"),flex:1}}>Cancel</button><button onClick={saveDevices} style={{...btn("#22c55e","#fff"),flex:1}}>Save</button></div>
                   </>

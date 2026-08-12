@@ -482,3 +482,11 @@ tbody tr.clickable:hover { background: #FAFAFB; }
 .inv-table td { padding: 8px 10px; }
 .iv-actions { display: flex; gap: 6px; white-space: nowrap; }
 .inv-warn { background: #FEF2F2; border: 1px solid #F3C0C0; color: #991B1B; border-radius: var(--radius-sm); padding: 10px 14px; font-size: 13.5px; margin-bottom: 16px; }
+
+/* inventory category tabs */
+.inv-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 16px; }
+.inv-tab { display: inline-flex; align-items: center; gap: 7px; background: var(--card); border: 1px solid var(--border-strong); border-radius: 999px; padding: 7px 14px; font-size: 13px; font-weight: 600; color: var(--muted); font-family: inherit; }
+.inv-tab:hover { background: #FAFAFB; color: var(--ink); }
+.inv-tab.active { background: var(--orange); border-color: var(--orange); color: #fff; }
+.inv-tab span { background: rgba(0,0,0,.08); border-radius: 999px; padding: 1px 7px; font-size: 11px; font-variant-numeric: tabular-nums; }
+.inv-tab.active span { background: rgba(255,255,255,.25); }
