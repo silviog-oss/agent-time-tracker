@@ -12,7 +12,7 @@ import {
   query, where, serverTimestamp, Timestamp, onSnapshot
 } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
-import { firebaseConfig, ALLOWED_EMAIL_DOMAIN, SUPER_ADMIN_EMAILS } from "./config.js?v=17";
+import { firebaseConfig, ALLOWED_EMAIL_DOMAIN, SUPER_ADMIN_EMAILS } from "./config.js?v=19";
 
 const isSuperAdminEmail = (email) =>
   (SUPER_ADMIN_EMAILS || []).map((e) => e.toLowerCase()).includes((email || "").toLowerCase());
@@ -36,7 +36,7 @@ const C = {
 };
 
 // ---------- App meta ----------
-const APP_VERSION = "v3.1.0";
+const APP_VERSION = "v3.1.2";
 
 // ---------- Global state ----------
 let ME = null;              // { uid, name, email, photo, role }
@@ -531,6 +531,84 @@ async function updateInstance(id, { fromHHMM, toHHMM, reason, dayKey }) {
     at: Timestamp.fromDate(from),
   });
   return true;
+}
+
+// Build a plain-text version of a day summary (for copy/paste into Slack, email, etc.)
+// One simple chronological timeline: tasks appear when they start AND when they finish.
+function buildSummaryText(u, dayKey, data, st, instances) {
+  const L = [];
+  L.push(`${u.name} — ${fmtDate(dayKey)}`);
+  L.push(`Status: ${{ working: "Working", lunch: "On lunch", out: "Clocked out" }[st.status]}`);
+  L.push(`Worked: ${fmtHM(st.totalWorkedSec)}   Lunch: ${fmtHM(st.totalLunchSec)}   Tasks: ${data.activities.length}`);
+  L.push("");
+  L.push("TIMELINE");
+
+  const ev = [];
+  data.sessions.forEach((s) => {
+    ev.push({ t: ms(s.clock_in), line: `${fmtClock(ms(s.clock_in))}  Clocked in` });
+    if (s.clock_out) ev.push({ t: ms(s.clock_out), line: `${fmtClock(ms(s.clock_out))}  Clocked out` });
+  });
+  data.lunches.forEach((l) => {
+    const end = l.end_time ? ms(l.end_time) : Date.now();
+    ev.push({
+      t: ms(l.start_time),
+      line: `${fmtClock(ms(l.start_time))} - ${l.end_time ? fmtClock(ms(l.end_time)) : "now"}  Lunch (${fmtHM((end - ms(l.start_time)) / 1000)})`,
+    });
+  });
+  data.activities.forEach((a) => {
+    const from = fmtClock(ms(a.start_time));
+    const to = a.end_time ? fmtClock(ms(a.end_time)) : "now";
+    ev.push({ t: ms(a.start_time), line: `${from} - ${to}  ${a.description}` });
+  });
+  // instances sit inline in the same timeline
+  (instances || []).forEach((i) => {
+    const from = ms(i.from || i.at), to = i.to ? ms(i.to) : null;
+    ev.push({
+      t: from,
+      line: `${fmtClock(from)}${to ? " - " + fmtClock(to) : ""}  ${i.reason || i.note || i.type || ""}`,
+    });
+  });
+
+  // Mark when a task actually finished — but only if other things happened
+  // while it was running, otherwise the line would just repeat itself.
+  const baseTimes = ev.map((e) => e.t);
+  data.activities.forEach((a) => {
+    if (!a.end_time) return;
+    const s = ms(a.start_time), e2 = ms(a.end_time);
+    const spanned = baseTimes.some((t) => t > s && t < e2);
+    if (spanned) {
+      ev.push({
+        t: e2,
+        line: `${fmtClock(s)} - ${fmtClock(e2)}  ${a.description} (Finished)`,
+      });
+    }
+  });
+
+  ev.sort((x, y) => x.t - y.t);
+  if (ev.length) ev.forEach((e) => L.push(e.line));
+  else L.push("(nothing logged)");
+
+  return L.join("\n");
+}
+
+async function copyText(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch (_) {
+    // Fallback for browsers/contexts without the async clipboard API
+    try {
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.select();
+      const ok = document.execCommand("copy");
+      document.body.removeChild(ta);
+      return ok;
+    } catch (e) { return false; }
+  }
 }
 
 // Admin-only: edit a whole task (agents can't — enforced in rules).
@@ -1431,12 +1509,30 @@ async function openAgentDetail(uid, u) {
         <div class="tile"><div class="t-label">Lunch</div><div class="t-value">${fmtHM(st.totalLunchSec)}</div></div>
         <div class="tile"><div class="t-label">Instances</div><div class="t-value">${instances.length}</div></div>
       </div>
-      <div class="card card-pad"><div class="section-title">Day summary — ${fmtDate(dayKey)}</div>${buildTimeline(data, instances)}</div>
+      <div class="card card-pad">
+        <div class="summary-head">
+          <div class="section-title" style="margin:0">Day summary — ${fmtDate(dayKey)}</div>
+          <button class="btn btn-outline btn-sm" id="copy-summary">Copy</button>
+        </div>
+        ${buildTimeline(data, instances)}
+      </div>
       ${instancesPanel}
       ${editor}
       <button class="btn btn-outline btn-sm mt-18" style="margin-top:18px" id="back-btn">← Back</button>`;
     $("detail-date").addEventListener("change", (e) => draw(e.target.value));
     $("back-btn").addEventListener("click", () => go(can("management") ? "agents" : "dashboard"));
+
+    $("copy-summary") && $("copy-summary").addEventListener("click", async () => {
+      const btn = $("copy-summary");
+      const ok = await copyText(buildSummaryText(u, dayKey, data, st, instances));
+      if (ok) {
+        btn.textContent = "Copied";
+        toast("Summary copied");
+        setTimeout(() => { if ($("copy-summary")) $("copy-summary").textContent = "Copy"; }, 1600);
+      } else {
+        toast("Couldn't copy — try again", true);
+      }
+    });
 
     // task editor wiring
     viewEl.querySelectorAll(".task-edit-row").forEach((row) => {

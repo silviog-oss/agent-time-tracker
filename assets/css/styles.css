@@ -471,3 +471,6 @@ tbody tr.clickable:hover { background: #FAFAFB; }
 /* splash lockup */
 .splash-brand { display: flex; align-items: center; gap: 10px; }
 .splash-brand .brand-mark { width: 28px; height: 28px; }
+
+/* day summary header with copy */
+.summary-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
