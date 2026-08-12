@@ -12,8 +12,8 @@ import {
   query, where, serverTimestamp, Timestamp, onSnapshot
 } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
-import { firebaseConfig, ALLOWED_EMAIL_DOMAIN, SUPER_ADMIN_EMAILS } from "./config.js?v=20";
-import { INVENTORY_SEED, INVENTORY_STATUSES, INVENTORY_MODELS } from "./inventory-seed.js?v=20";
+import { firebaseConfig, ALLOWED_EMAIL_DOMAIN, SUPER_ADMIN_EMAILS } from "./config.js?v=21";
+import { INVENTORY_SEED, INVENTORY_STATUSES, INVENTORY_MODELS } from "./inventory-seed.js?v=21";
 
 const isSuperAdminEmail = (email) =>
   (SUPER_ADMIN_EMAILS || []).map((e) => e.toLowerCase()).includes((email || "").toLowerCase());
@@ -38,7 +38,7 @@ const C = {
 };
 
 // ---------- App meta ----------
-const APP_VERSION = "v3.2.0";
+const APP_VERSION = "v3.3.0";
 
 // ---------- Global state ----------
 let ME = null;              // { uid, name, email, photo, role }
@@ -667,7 +667,7 @@ function render() {
 function viewMap(highlight) {
   const h = highlight ? "&highlight=" + encodeURIComponent(highlight) : "";
   pendingHighlight = null;
-  viewEl.innerHTML = `<div class="map-wrap"><iframe class="map-frame" src="assets/office-map.html?v=14${h}" title="Office Map"></iframe></div>`;
+  viewEl.innerHTML = `<div class="map-wrap"><iframe class="map-frame" src="assets/office-map.html?v=21${h}" title="Office Map"></iframe></div>`;
 }
 
 // IT Service board + Inventory placeholder are defined lower in the file.
@@ -929,6 +929,13 @@ async function viewInventory() {
   viewEl.innerHTML = skeleton();
   let items = await getDocsArr(C.inventory).catch(() => []);
 
+  // Live-refresh when the map (or another admin) writes to inventory.
+  let firstSnap = true;
+  unsubscribers.push(onSnapshot(C.inventory, () => {
+    if (firstSnap) { firstSnap = false; return; }
+    if (ROUTE === "inventory" && !document.querySelector("#inv-body input:focus")) viewInventory();
+  }, (err) => console.warn("inventory live:", err.message)));
+
   // First run: seed from the Coda export.
   if (!items.length) {
     viewEl.innerHTML = `
@@ -964,6 +971,7 @@ async function viewInventory() {
       <td><input class="iv-assigned" value="${esc(i.assigned_to || "")}" placeholder="Unassigned" /></td>
       <td><input class="iv-model" value="${esc(i.model || "")}" list="iv-models" placeholder="Model" /></td>
       <td><input class="iv-serial ${counts[(i.serial || "").trim()] > 1 ? "dupe" : ""}" value="${esc(i.serial || "")}" placeholder="Serial" /></td>
+      <td><input class="iv-tag" value="${esc(i.tag || "")}" placeholder="Tag" /></td>
       <td><select class="iv-status">${INVENTORY_STATUSES.map((s) => `<option ${((i.status || "Assigned") === s) ? "selected" : ""}>${s}</option>`).join("")}</select></td>
       <td><input class="iv-since" type="date" value="${esc(i.since || "")}" /></td>
       <td class="iv-actions">
@@ -996,7 +1004,7 @@ async function viewInventory() {
     <datalist id="iv-models">${INVENTORY_MODELS.map((m) => `<option value="${m}">`).join("")}</datalist>
     <div class="card table-wrap">
       <table class="inv-table"><thead><tr>
-        <th>Assigned to</th><th>Model</th><th>Serial number</th><th>Status</th><th>Since</th><th></th>
+        <th>Assigned to</th><th>Model</th><th>Serial number</th><th>Asset tag</th><th>Status</th><th>Since</th><th></th>
       </tr></thead><tbody id="inv-body">${items.map(row).join("")}</tbody></table>
     </div>`;
 
@@ -1008,6 +1016,7 @@ async function viewInventory() {
           assigned_to: tr.querySelector(".iv-assigned").value.trim(),
           model: tr.querySelector(".iv-model").value.trim(),
           serial: tr.querySelector(".iv-serial").value.trim(),
+          tag: tr.querySelector(".iv-tag").value.trim(),
           status: tr.querySelector(".iv-status").value,
           since: tr.querySelector(".iv-since").value,
         });
@@ -1033,7 +1042,7 @@ async function viewInventory() {
 
   $("inv-add").addEventListener("click", guard(async () => {
     await addDoc(C.inventory, {
-      assigned_to: "", model: "", serial: "", status: "Spare", since: "", notes: "",
+      assigned_to: "", model: "", serial: "", tag: "", status: "Spare", since: "", notes: "",
       created_at: Timestamp.now(),
     });
     toast("Row added");
@@ -1041,8 +1050,8 @@ async function viewInventory() {
   }));
 
   $("inv-csv").addEventListener("click", () => {
-    const rows = [["Assigned To", "Model", "Serial Number", "Status", "Since"]];
-    items.forEach((i) => rows.push([i.assigned_to || "", i.model || "", i.serial || "", i.status || "", i.since || ""]));
+    const rows = [["Assigned To", "Model", "Serial Number", "Asset Tag", "Status", "Since"]];
+    items.forEach((i) => rows.push([i.assigned_to || "", i.model || "", i.serial || "", i.tag || "", i.status || "", i.since || ""]));
     const csv = rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\r\n");
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);

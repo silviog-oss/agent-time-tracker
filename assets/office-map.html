@@ -23,7 +23,7 @@
 <div id="root"></div>
 <script type="module">
   import { initializeApp, getApps } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-  import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+  import { getFirestore, doc, setDoc, updateDoc, addDoc, getDocs, collection, query, where, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
   import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
   import { firebaseConfig } from "./js/config.js";
   const app = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
@@ -34,6 +34,8 @@
   const authReady = new Promise((r) => { resolveAuth = r; });
   onAuthStateChanged(auth, (u) => resolveAuth(u));
   // Shared, everyone-can-edit map stored in one Firestore doc.
+  const invCol = collection(db, "inventory");
+  const norm = (n) => (n || "").trim().toLowerCase();
   window.ShiftMap = {
     authReady,
     subscribe(cb) {
@@ -41,6 +43,40 @@
         (err) => console.warn("map sync error:", err.message));
     },
     async save(payload) { await setDoc(ref, { ...payload, updated_at: Date.now() }); return true; },
+
+    // ---- Inventory: the single source of truth for workstations ----
+    subscribeInventory(cb) {
+      return onSnapshot(invCol, (snap) => {
+        const list = [];
+        snap.forEach((d) => list.push({ id: d.id, ...d.data() }));
+        cb(list);
+      }, (err) => console.warn("inventory sync error:", err.message));
+    },
+    // Write a person's Computer device straight into the inventory collection.
+    async syncPersonToInventory(personName, dev) {
+      if (!personName) return false;
+      const snap = await getDocs(query(invCol, where("assigned_to", "==", personName)));
+      const patch = {
+        assigned_to: personName,
+        model: dev && dev.model ? dev.model : "",
+        serial: dev && dev.sn ? dev.sn : "",
+        tag: dev && dev.tag ? dev.tag : "",
+        status: "Assigned",
+        updated_from: "map",
+        updated_at: Date.now(),
+      };
+      if (!snap.empty) {
+        await updateDoc(doc(invCol, snap.docs[0].id), patch);
+      } else {
+        // no exact name match — try a case-insensitive scan before creating
+        const all = await getDocs(invCol);
+        let hit = null;
+        all.forEach((d) => { if (!hit && norm(d.data().assigned_to) === norm(personName)) hit = d.id; });
+        if (hit) await updateDoc(doc(invCol, hit), patch);
+        else await addDoc(invCol, { ...patch, since: "", notes: "", created_at: Date.now() });
+      }
+      return true;
+    },
   };
 </script>
 <script type="text/babel">
@@ -154,6 +190,50 @@ function App(){
   const [wfhExpandedDevices,setWfhExpandedDevices]=useState({});
   const [returnCoords,setReturnCoords]=useState({});
   const dragItem=useRef(null);
+  const [inventory,setInventory]=useState([]);
+
+  // Live inventory (shared with the Inventory tab)
+  useEffect(()=>{
+    if(!window.ShiftMap||!window.ShiftMap.subscribeInventory) return;
+    let un=()=>{};
+    window.ShiftMap.authReady.then(()=>{ un=window.ShiftMap.subscribeInventory(setInventory); });
+    return ()=>{try{un();}catch{}};
+  },[]);
+
+  // Map edit -> inventory write (Computer device is the workstation record)
+  function pushToInventory(personName, devs){
+    if(!window.ShiftMap||!window.ShiftMap.syncPersonToInventory) return;
+    if(!personName) return;
+    const comp=(devs||[]).find(d=>d.type==="Computer"||d.type==="Laptop");
+    if(!comp) return;
+    window.ShiftMap.syncPersonToInventory(personName, comp)
+      .catch(e=>showToast("Inventory not updated: "+e.message,"error"));
+  }
+
+  // Inventory -> map: fill each seat's Computer device from the inventory record
+  function pullFromInventory(){
+    if(!inventory.length){showToast("Inventory is empty","error");return;}
+    let n=0;
+    const apply=(list)=>list.map(c=>{
+      const rec=invFor(c.name);
+      if(!rec) return c;
+      const devs=[...(c.devices||[])];
+      const idx=devs.findIndex(d=>d.type==="Computer"||d.type==="Laptop");
+      const next={type:idx>=0?devs[idx].type:"Computer",model:rec.model||"",sn:rec.serial||"",tag:rec.tag||""};
+      if(idx>=0) devs[idx]={...devs[idx],...next}; else devs.push(next);
+      n++;
+      return {...c,devices:devs};
+    });
+    pushState({cubicles:apply(cubicles),wfh:apply(wfh)});
+    showToast(n?`Filled ${n} from inventory — click Save`:"No matching names found",n?"success":"error");
+  }
+
+  // Look up a person's inventory record by name (case-insensitive)
+  function invFor(name){
+    const n=(name||"").trim().toLowerCase();
+    if(!n) return null;
+    return inventory.find(i=>(i.assigned_to||"").trim().toLowerCase()===n)||null;
+  }
 
   // Live shared map: subscribe once; apply remote unless we have local unsaved edits.
   useEffect(()=>{
@@ -206,7 +286,7 @@ function App(){
     showToast(`${nr}×${nc}`);
   }
 
-  function saveDevices(){pushState({cubicles:cubicles.map(c=>c.id===selected.id?{...c,devices:devicesForm}:c)});setSelected(s=>({...s,devices:devicesForm}));setPanel("view");showToast("✅ Devices saved!");}
+  function saveDevices(){pushState({cubicles:cubicles.map(c=>c.id===selected.id?{...c,devices:devicesForm}:c)});setSelected(s=>({...s,devices:devicesForm}));setPanel("view");pushToInventory(selected.name,devicesForm);showToast("Devices saved — inventory updated");}
   function removeDeviceInline(i){const d2=(selected.devices||[]).filter((_,idx)=>idx!==i);pushState({cubicles:cubicles.map(c=>c.id===selected.id?{...c,devices:d2}:c)});setSelected(s=>({...s,devices:d2}));setExpandedDevices(e=>{const n={...e};delete n[i];return n;});showToast("🗑️ Device removed!");}
   function savePerson(){if(!personForm.name.trim())return;pushState({cubicles:cubicles.map(c=>c.id===selected.id?{...c,name:personForm.name,role:personForm.role}:c)});setSelected(s=>({...s,name:personForm.name,role:personForm.role}));setPanel("view");showToast("✅ Updated!");}
   function updateNotes(val){pushState({cubicles:cubicles.map(c=>c.id===selected.id?{...c,notes:val}:c)});setSelected(s=>({...s,notes:val}));}
@@ -236,7 +316,7 @@ function App(){
     pushState({cubicles:[...cubicles,nc]});setNextId(n=>n+1);setAddForm({name:"",role:"",row:"",col:""});setPanel("view");showToast(`✅ ${nc.name} added!`);
   }
   function addToWFH(){if(!wfhForm.name.trim()){showToast("⚠️ Name required","error");return;}const nc={id:nextId,name:wfhForm.name.trim(),role:wfhForm.role,devices:[],notes:""};pushState({wfh:[...wfh,nc]});setNextId(n=>n+1);setWfhForm({name:"",role:""});showToast(`✅ ${nc.name} added to WFH!`);}
-  function saveWfhDevices(){pushState({wfh:wfh.map(w=>w.id===wfhSelected.id?{...w,devices:wfhDevicesForm}:w)});setWfhSelected(s=>({...s,devices:wfhDevicesForm}));setWfhPanel("view");showToast("✅ Devices saved!");}
+  function saveWfhDevices(){pushState({wfh:wfh.map(w=>w.id===wfhSelected.id?{...w,devices:wfhDevicesForm}:w)});setWfhSelected(s=>({...s,devices:wfhDevicesForm}));setWfhPanel("view");pushToInventory(wfhSelected.name,wfhDevicesForm);showToast("Devices saved — inventory updated");}
   function removeWfhDeviceInline(i){const d2=(wfhSelected.devices||[]).filter((_,idx)=>idx!==i);pushState({wfh:wfh.map(w=>w.id===wfhSelected.id?{...w,devices:d2}:w)});setWfhSelected(s=>({...s,devices:d2}));setWfhExpandedDevices(e=>{const n={...e};delete n[i];return n;});showToast("🗑️ Device removed!");}
   function removeFromWFH(id){pushState({wfh:wfh.filter(w=>w.id!==id)});setWfhSelected(null);showToast("🗑️ Removed from WFH!");}
 
@@ -426,6 +506,7 @@ function App(){
             <button onClick={()=>setShowWFH(true)} style={{...btn("#16181D","#fff")}}>WFH {wfh.length>0&&<span style={{background:"#fff",color:"#16181D",borderRadius:999,padding:"1px 6px",fontSize:10,fontWeight:800,marginLeft:4}}>{wfh.length}</span>}</button>
             <button onClick={()=>{setSelected(null);setPanel("addblack");setAddForm({name:"",role:"",row:"",col:""}); }} style={{...btn("#1e293b","#fff")}}>Add block</button>
             <button onClick={()=>{setSelected(null);setPanel("add");setAddForm({name:"",role:"",row:"",col:""});}} style={{...btn("#FF6A00","#fff")}}>Add person</button>
+            <button onClick={pullFromInventory} title="Fill each person's Computer device from the Inventory tab" style={{...btn("#f1f5f9","#475569"),border:"1px solid #e2e8f0"}}>Pull inventory</button>
             <button onClick={saveMap} style={{...btn(hasUnsaved?"#16a34a":"#f1f5f9",hasUnsaved?"#fff":"#94a3b8"),border:hasUnsaved?"none":"1px solid #e2e8f0",minWidth:80}}>{hasUnsaved?"Save":"Saved"}</button>
           </div>
         </div>
@@ -550,6 +631,13 @@ function App(){
                   <>
                     {selected.role!=="__block__"&&(
                       <>
+                        {(()=>{const rec=invFor(selected.name);return rec?(
+                          <div style={{marginBottom:10,padding:"8px 10px",background:"#FFF6EF",border:"1px solid #FBD9BC",borderRadius:8}}>
+                            <div style={{fontSize:11,fontWeight:700,color:"#9a4a00",marginBottom:4}}>INVENTORY RECORD</div>
+                            <div style={{fontSize:12,color:"#475569"}}>{rec.model||"—"} · {rec.status||"—"}</div>
+                            <div style={{fontSize:11,color:"#94a3b8",wordBreak:"break-all"}}>{rec.serial||"no serial"}</div>
+                          </div>
+                        ):null;})()}
                         <div style={{fontSize:12,fontWeight:600,color:"#475569",marginBottom:8}}>Devices ({(selected.devices||[]).length})</div>
                         <DeviceList devices={selected.devices} expanded={expandedDevices} setExpanded={setExpandedDevices} onRemove={removeDeviceInline}/>
                         {selected.notes&&<div style={{background:"#fefce8",border:"1px solid #fde047",borderRadius:7,padding:"6px 10px",fontSize:12,color:"#713f12",marginBottom:10}}>📝 {selected.notes}</div>}
