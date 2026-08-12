@@ -120,26 +120,26 @@ const withStandardSlots=(devs)=>{const out=[...(devs||[])];
   const order=DEVICE_TYPES;return out.sort((a,b)=>order.indexOf(a.type)-order.indexOf(b.type));};
 
 const seed=[
-  {id:1,name:"Anahi",role:"Contador",row:1,col:1},
-  {id:2,name:"Fabiola",role:"Contador",row:1,col:2},
+  {id:1,name:"",role:"",row:1,col:1},
+  {id:2,name:"",role:"",row:1,col:2},
   {id:3,name:"Barron",role:"CORA",row:1,col:4},
   {id:4,name:"Eliel",role:"CORA",row:1,col:5},
   {id:5,name:"Kilian",role:"CORA",row:1,col:7},
   {id:6,name:"Saul",role:"CORA",row:1,col:8},
-  {id:7,name:"Alex",role:"Contador",row:2,col:1},
-  {id:8,name:"Alex Ibarra",role:"Contador",row:2,col:3},
+  {id:7,name:"",role:"",row:2,col:1},
+  {id:8,name:"",role:"",row:2,col:3},
   {id:9,name:"Hilary",role:"Customer Service",row:2,col:4},
   {id:10,name:"Leah",role:"Newbie",row:2,col:5},
   {id:11,name:"Jewel",role:"Supervisor",row:2,col:7},
   {id:12,name:"Aris",role:"Newbie",row:2,col:8},
-  {id:13,name:"Albert",role:"Supervisor",row:3,col:3},
+  {id:13,name:"",role:"",row:3,col:3},
   {id:14,name:"Axel",role:"Newbie",row:3,col:4},
   {id:15,name:"Leo",role:"Customer Service",row:3,col:6},
   {id:16,name:"Oliver C",role:"Customer Service",row:3,col:7},
   {id:17,name:"Angi",role:"Newbie",row:3,col:8},
   {id:18,name:"Mariana",role:"Customer Service",row:3,col:9},
   {id:19,name:"Adrian M",role:"Customer Service",row:3,col:10},
-  {id:20,name:"Raul M.",role:"Customer Service",row:4,col:3},
+  {id:20,name:"",role:"",row:4,col:3},
   {id:21,name:"Andrew D.",role:"Newbie",row:4,col:4},
   {id:22,name:"David Haaz",role:"Customer Service",row:4,col:5},
   {id:23,name:"Casandra",role:"Customer Service",row:4,col:7},
@@ -312,7 +312,29 @@ function App(){
 
   function saveDevices(){pushState({cubicles:cubicles.map(c=>c.id===selected.id?{...c,devices:devicesForm}:c)});setSelected(s=>({...s,devices:devicesForm}));setPanel("view");pushToInventory(selected.name,devicesForm);showToast("Devices saved — inventory updated");}
   function removeDeviceInline(i){const d2=(selected.devices||[]).filter((_,idx)=>idx!==i);pushState({cubicles:cubicles.map(c=>c.id===selected.id?{...c,devices:d2}:c)});setSelected(s=>({...s,devices:d2}));setExpandedDevices(e=>{const n={...e};delete n[i];return n;});showToast("🗑️ Device removed!");}
-  function savePerson(){if(!personForm.name.trim())return;pushState({cubicles:cubicles.map(c=>c.id===selected.id?{...c,name:personForm.name,role:personForm.role}:c)});setSelected(s=>({...s,name:personForm.name,role:personForm.role}));setPanel("view");showToast("✅ Updated!");}
+  function savePerson(){
+    const newName=personForm.name.trim();
+    const oldName=selected.name;
+    pushState({cubicles:cubicles.map(c=>c.id===selected.id?{...c,name:newName,role:personForm.role}:c)});
+    setSelected(s=>({...s,name:newName,role:personForm.role}));
+    setPanel("view");
+    if(oldName && newName!==oldName){
+      // seat cleared or reassigned to someone else: release the OLD occupant's devices
+      // (their inventory rows move to Unassigned, they are never deleted here)
+      pushToInventory(oldName, []);
+    }
+    showToast(newName?"Updated":"Seat cleared — devices moved to Unassigned");
+  }
+  // Empty this seat entirely: no name, no role, devices released to Unassigned.
+  function clearSeat(){
+    if(!selected) return;
+    const oldName=selected.name;
+    pushState({cubicles:cubicles.map(c=>c.id===selected.id?{...c,name:"",role:"",devices:[]}:c)});
+    setSelected(s=>({...s,name:"",role:"",devices:[]}));
+    setPanel("view");
+    if(oldName) pushToInventory(oldName, []);
+    showToast("Seat cleared — devices moved to Unassigned");
+  }
   function updateNotes(val){pushState({cubicles:cubicles.map(c=>c.id===selected.id?{...c,notes:val}:c)});setSelected(s=>({...s,notes:val}));}
   function removePerson(){pushState({cubicles:cubicles.filter(c=>c.id!==confirm.id)});setSelected(null);setConfirm(null);showToast("🗑️ Removed!");}
   function sendToWFH(cub){pushState({cubicles:cubicles.filter(c=>c.id!==cub.id),wfh:[...wfh,{...cub}]});setSelected(null);setConfirm(null);showToast(`🏠 ${cub.name} → WFH!`);}
@@ -573,7 +595,8 @@ function App(){
                 const isMatch=cub&&hlIds.has(cub.id);
                 const isDimmed=search&&cub&&!isMatch;
                 const isBlock=cub?.role==="__block__";
-                const s=cub?(isBlock?{bg:"#1e293b",text:"#fff",border:"#0f172a"}:(roleStyle[cub.role]||roleStyle[""])):null;
+                const isEmpty=cub&&!isBlock&&!cub.name;
+                const s=cub?(isBlock?{bg:"#1e293b",text:"#fff",border:"#0f172a"}:isEmpty?{bg:"#fff",text:"#94a3b8",border:"#cbd5e1"}:(roleStyle[cub.role]||roleStyle[""])):null;
                 const cubDevices=cub?.devices||[];
                 if(!cub)return(<div key={key} onDragOver={e=>handleDragOver(e,row,col)} onDrop={e=>handleDrop(e,row,col)}
                   style={{borderRadius:6,background:isOver?"#FFDFC6":"transparent",border:isOver?"2px dashed #FF6A00":"1px dashed transparent",transition:"background 0.1s"}}/>);
@@ -581,13 +604,13 @@ function App(){
                   <div key={key} draggable onDragStart={e=>handleDragStart(e,cub)} onDragEnd={handleDragEnd}
                     onDragOver={e=>handleDragOver(e,row,col)} onDrop={e=>handleDrop(e,row,col)} onClick={()=>selectCubicle(cub)}
                     style={{background:isMatch?"#fef08a":isOver&&dragging?.id!==cub.id?"#FFDFC6":s.bg,
-                      border:isSel?"2px solid #FF6A00":isMatch?"2px solid #eab308":isOver&&dragging?.id!==cub.id?"2px dashed #FF6A00":`1px solid ${s.border}`,
+                      border:isSel?"2px solid #FF6A00":isMatch?"2px solid #eab308":isOver&&dragging?.id!==cub.id?"2px dashed #FF6A00":isEmpty?"1.5px dashed "+s.border:`1px solid ${s.border}`,
                       borderRadius:6,padding:"4px 5px",cursor:"grab",display:"flex",flexDirection:"column",justifyContent:"center",alignItems:"center",
                       textAlign:"center",opacity:isDraggingThis?0.35:isDimmed?0.3:1,
                       boxShadow:isMatch?"0 0 0 3px rgba(234,179,8,0.35)":isSel?"0 0 0 3px rgba(255,106,0,0.25)":"none",
                       transform:isMatch?"scale(1.06)":"scale(1)",transition:"all 0.15s",userSelect:"none",position:"relative",zIndex:isMatch?2:1}}>
                     <div style={{position:"absolute",top:2,right:4,fontSize:9,color:isBlock?"#475569":"#cbd5e1"}}>⠿</div>
-                    <div style={{fontSize:11,fontWeight:700,color:isBlock?"#94a3b8":"#1e293b",lineHeight:1.2}}>{isBlock?(cub.name||"⬛"):cub.name}</div>
+                    <div style={{fontSize:11,fontWeight:700,color:isBlock?"#94a3b8":isEmpty?"#94a3b8":"#1e293b",lineHeight:1.2,fontStyle:isEmpty?"italic":"normal"}}>{isBlock?(cub.name||"⬛"):isEmpty?"Open desk":cub.name}</div>
                     {!isBlock&&cub.role&&<div style={{fontSize:9,color:s.text,fontWeight:700,marginTop:2,background:"rgba(255,255,255,0.6)",borderRadius:3,padding:"1px 4px"}}>{cub.role}</div>}
                     {!isBlock&&cubDevices.length>0&&<div style={{fontSize:9,color:"#94a3b8",marginTop:1}}>{cubDevices.length}</div>}
                   </div>
@@ -681,8 +704,8 @@ function App(){
 
                 {panel==="person"&&personForm&&selected.role!=="__block__"&&(
                   <>
-                    <div style={{fontSize:12,fontWeight:600,color:"#475569",marginBottom:8}}>Edit Person</div>
-                    <div style={{marginBottom:10}}><div style={lStyle}>Name</div><input value={personForm.name} onChange={e=>setPersonForm(f=>({...f,name:e.target.value}))} style={iStyle}/></div>
+                    <div style={{fontSize:12,fontWeight:600,color:"#475569",marginBottom:8}}>{selected.name?"Edit Person":"Assign this desk"}</div>
+                    <div style={{marginBottom:10}}><div style={lStyle}>Name</div><input value={personForm.name} onChange={e=>setPersonForm(f=>({...f,name:e.target.value}))} placeholder="Type a name to assign" style={iStyle}/></div>
                     <div style={{marginBottom:12}}><div style={lStyle}>Role</div>
                       <select value={personForm.role} onChange={e=>setPersonForm(f=>({...f,role:e.target.value}))} style={iStyle}>
                         {ROLES.map(r=><option key={r} value={r}>{r||"— No role —"}</option>)}
@@ -692,6 +715,7 @@ function App(){
                       <textarea value={selected.notes} onChange={e=>updateNotes(e.target.value)} rows={2} placeholder="Any notes..." style={{...iStyle,resize:"vertical"}}/>
                     </div>
                     <div style={{display:"flex",gap:6}}><button onClick={()=>setPanel("view")} style={{...btn("#f1f5f9","#475569"),flex:1}}>Cancel</button><button onClick={savePerson} style={{...btn("#22c55e","#fff"),flex:1}}>Save</button></div>
+                    {selected.name&&<button onClick={clearSeat} style={{...btn("#fff","#ef4444"),border:"1px solid #fecaca",width:"100%",marginTop:8}}>Clear seat (keep desk, unassign devices)</button>}
                   </>
                 )}
               </div>
