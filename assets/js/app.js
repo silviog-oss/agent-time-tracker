@@ -12,7 +12,8 @@ import {
   query, where, serverTimestamp, Timestamp, onSnapshot
 } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
-import { firebaseConfig, ALLOWED_EMAIL_DOMAIN, SUPER_ADMIN_EMAILS } from "./config.js?v=19";
+import { firebaseConfig, ALLOWED_EMAIL_DOMAIN, SUPER_ADMIN_EMAILS } from "./config.js?v=20";
+import { INVENTORY_SEED, INVENTORY_STATUSES, INVENTORY_MODELS } from "./inventory-seed.js?v=20";
 
 const isSuperAdminEmail = (email) =>
   (SUPER_ADMIN_EMAILS || []).map((e) => e.toLowerCase()).includes((email || "").toLowerCase());
@@ -33,10 +34,11 @@ const C = {
   settings:   collection(db, "settings"),
   it_requests: collection(db, "it_requests"),
   shopping:   collection(db, "shopping"),
+  inventory:  collection(db, "inventory"),
 };
 
 // ---------- App meta ----------
-const APP_VERSION = "v3.1.2";
+const APP_VERSION = "v3.2.0";
 
 // ---------- Global state ----------
 let ME = null;              // { uid, name, email, photo, role }
@@ -921,15 +923,134 @@ function openShoppingModal() {
 }
 
 // ============================================================
-//  INVENTORY — placeholder (Coda migration coming later)
+//  INVENTORY — workstations (shared, IT roles only)
 // ============================================================
-function viewInventory() {
+async function viewInventory() {
+  viewEl.innerHTML = skeleton();
+  let items = await getDocsArr(C.inventory).catch(() => []);
+
+  // First run: seed from the Coda export.
+  if (!items.length) {
+    viewEl.innerHTML = `
+      <div class="card card-pad">
+        <div class="section-title">Workstation inventory</div>
+        <p class="greeting-sub">No inventory loaded yet. Import the ${INVENTORY_SEED.length} workstations from the Coda table to get started.</p>
+        <button class="btn btn-primary btn-sm" id="inv-seed">Import ${INVENTORY_SEED.length} workstations</button>
+      </div>`;
+    $("inv-seed").addEventListener("click", guard(async () => {
+      const btn = $("inv-seed");
+      btn.disabled = true; btn.textContent = "Importing…";
+      for (const r of INVENTORY_SEED) {
+        await addDoc(C.inventory, { ...r, notes: "", created_at: Timestamp.now() });
+      }
+      toast("Inventory imported");
+      viewInventory();
+    }));
+    return;
+  }
+
+  items.sort((a, b) => (a.assigned_to || "").localeCompare(b.assigned_to || ""));
+
+  // duplicate serials are a real data problem — surface them
+  const counts = {};
+  items.forEach((i) => { const s = (i.serial || "").trim(); if (s) counts[s] = (counts[s] || 0) + 1; });
+  const dupes = Object.entries(counts).filter(([, n]) => n > 1);
+
+  const byStatus = {};
+  items.forEach((i) => { byStatus[i.status || "—"] = (byStatus[i.status || "—"] || 0) + 1; });
+
+  const row = (i) => `
+    <tr data-id="${i.id}">
+      <td><input class="iv-assigned" value="${esc(i.assigned_to || "")}" placeholder="Unassigned" /></td>
+      <td><input class="iv-model" value="${esc(i.model || "")}" list="iv-models" placeholder="Model" /></td>
+      <td><input class="iv-serial ${counts[(i.serial || "").trim()] > 1 ? "dupe" : ""}" value="${esc(i.serial || "")}" placeholder="Serial" /></td>
+      <td><select class="iv-status">${INVENTORY_STATUSES.map((s) => `<option ${((i.status || "Assigned") === s) ? "selected" : ""}>${s}</option>`).join("")}</select></td>
+      <td><input class="iv-since" type="date" value="${esc(i.since || "")}" /></td>
+      <td class="iv-actions">
+        <button class="btn btn-outline btn-sm iv-save">Save</button>
+        <button class="btn btn-danger btn-sm iv-del">Delete</button>
+      </td>
+    </tr>`;
+
   viewEl.innerHTML = `
-    <div class="card card-pad inv-soon">
-      <div class="inv-badge">Coming soon</div>
-      <div class="section-title" style="margin-top:12px">IT inventory</div>
-      <p class="greeting-sub" style="max-width:520px">This is where the IT inventory from Coda will live — devices, serial numbers, assignments, and stock. We're migrating that data next. For now this tab is a placeholder.</p>
+    <div class="page-head">
+      <div class="section-title" style="margin:0">Workstations (${items.length})</div>
+      <div class="it-topbtns">
+        <button class="btn btn-outline btn-sm" id="inv-csv">Export CSV</button>
+        <button class="btn btn-primary btn-sm" id="inv-add">Add workstation</button>
+      </div>
+    </div>
+
+    <div class="tiles">
+      ${Object.entries(byStatus).map(([s, n]) => `<div class="tile"><div class="t-label">${esc(s)}</div><div class="t-value">${n}</div></div>`).join("")}
+    </div>
+
+    ${dupes.length ? `<div class="inv-warn">
+      <b>${dupes.length} serial number${dupes.length === 1 ? "" : "s"} used on more than one machine</b> — likely copy/paste errors carried over from Coda. Highlighted in red below.
+    </div>` : ""}
+
+    <div class="filters">
+      <div class="field"><label>Search</label><input id="inv-search" placeholder="Name, model, or serial" /></div>
+    </div>
+
+    <datalist id="iv-models">${INVENTORY_MODELS.map((m) => `<option value="${m}">`).join("")}</datalist>
+    <div class="card table-wrap">
+      <table class="inv-table"><thead><tr>
+        <th>Assigned to</th><th>Model</th><th>Serial number</th><th>Status</th><th>Since</th><th></th>
+      </tr></thead><tbody id="inv-body">${items.map(row).join("")}</tbody></table>
     </div>`;
+
+  const wire = () => {
+    viewEl.querySelectorAll("#inv-body tr").forEach((tr) => {
+      const id = tr.dataset.id;
+      tr.querySelector(".iv-save").addEventListener("click", guard(async () => {
+        await updateDoc(doc(C.inventory, id), {
+          assigned_to: tr.querySelector(".iv-assigned").value.trim(),
+          model: tr.querySelector(".iv-model").value.trim(),
+          serial: tr.querySelector(".iv-serial").value.trim(),
+          status: tr.querySelector(".iv-status").value,
+          since: tr.querySelector(".iv-since").value,
+        });
+        toast("Saved");
+        viewInventory();
+      }));
+      tr.querySelector(".iv-del").addEventListener("click", guard(async () => {
+        await deleteDoc(doc(C.inventory, id));
+        toast("Deleted");
+        viewInventory();
+      }));
+    });
+  };
+  wire();
+
+  $("inv-search").addEventListener("input", (e) => {
+    const q = e.target.value.toLowerCase();
+    viewEl.querySelectorAll("#inv-body tr").forEach((tr) => {
+      const hay = [...tr.querySelectorAll("input")].map((i) => i.value).join(" ").toLowerCase();
+      tr.style.display = hay.includes(q) ? "" : "none";
+    });
+  });
+
+  $("inv-add").addEventListener("click", guard(async () => {
+    await addDoc(C.inventory, {
+      assigned_to: "", model: "", serial: "", status: "Spare", since: "", notes: "",
+      created_at: Timestamp.now(),
+    });
+    toast("Row added");
+    viewInventory();
+  }));
+
+  $("inv-csv").addEventListener("click", () => {
+    const rows = [["Assigned To", "Model", "Serial Number", "Status", "Since"]];
+    items.forEach((i) => rows.push([i.assigned_to || "", i.model || "", i.serial || "", i.status || "", i.since || ""]));
+    const csv = rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\r\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = `workstations_${todayKey()}.csv`; a.click();
+    URL.revokeObjectURL(url);
+    toast("CSV exported");
+  });
 }
 
 // ============================================================

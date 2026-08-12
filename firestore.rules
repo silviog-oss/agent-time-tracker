@@ -124,6 +124,12 @@ service cloud.firestore {
       allow delete: if isITStaff() || (isSignedIn() && resource.data.created_by == request.auth.uid);
     }
 
+    // ---- Inventory (IT staff manage; any signed-in user may read) ----
+    match /inventory/{id} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if isITStaff();
+    }
+
     // ---- Shared settings (e.g. the office map) — any signed-in user ----
     match /settings/{id} {
       allow read, write: if isSignedIn();

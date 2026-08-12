@@ -474,3 +474,11 @@ tbody tr.clickable:hover { background: #FAFAFB; }
 
 /* day summary header with copy */
 .summary-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+
+/* inventory table */
+.inv-table input, .inv-table select { width: 100%; min-width: 90px; height: 34px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); padding: 0 8px; font-family: inherit; font-size: 13.5px; color: var(--ink); background: var(--card); }
+.inv-table input:focus, .inv-table select:focus { outline: none; border-color: var(--orange); box-shadow: 0 0 0 3px var(--orange-soft); }
+.inv-table input.dupe { border-color: #F3C0C0; background: #FEF2F2; color: #B91C1C; }
+.inv-table td { padding: 8px 10px; }
+.iv-actions { display: flex; gap: 6px; white-space: nowrap; }
+.inv-warn { background: #FEF2F2; border: 1px solid #F3C0C0; color: #991B1B; border-radius: var(--radius-sm); padding: 10px 14px; font-size: 13.5px; margin-bottom: 16px; }
