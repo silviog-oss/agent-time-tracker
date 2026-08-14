@@ -138,6 +138,7 @@ a { color: var(--orange); text-decoration: none; }
 .topbar-clock { color: var(--muted); font-variant-numeric: tabular-nums; font-weight: 500; }
 .menu-toggle { display: none; color: var(--ink); }
 .view { padding: 26px; max-width: 1180px; width: 100%; flex: 1 0 auto; }
+.view--wide { max-width: none; }
 
 .scrim { display: none; }
 
