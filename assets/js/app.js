@@ -38,7 +38,7 @@ const C = {
 };
 
 // ---------- App meta ----------
-const APP_VERSION = "v3.5.0";
+const APP_VERSION = "v3.5.1";
 
 // ---------- Global state ----------
 let ME = null;              // { uid, name, email, photo, role }
