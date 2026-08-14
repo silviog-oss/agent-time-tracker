@@ -45,6 +45,8 @@
   .desk--sel,.desk--sel:hover{box-shadow:0 0 0 2px var(--brand), var(--sh-2)!important;}
   .desk--match,.desk--match:hover{box-shadow:0 0 0 2px var(--warn), 0 0 0 6px rgba(224,168,0,.20)!important;z-index:4;}
   .desk--over,.desk--over:hover{box-shadow:0 0 0 2px var(--brand)!important;}
+  .desk-empty{transition:background .12s ease, border-color .12s ease;}
+  .desk-empty:hover{background:var(--brand-wash)!important;border-color:var(--brand)!important;}
 
   .modal-in{animation:pop .16s cubic-bezier(.2,.9,.3,1.2);}
   @keyframes pop{from{opacity:0;transform:scale(.96)}to{opacity:1;transform:scale(1)}}
@@ -137,7 +139,6 @@
 const { useState, useRef, useCallback, useEffect } = React;
 
 const ROLES = ["Supervisor","CORA","Contador","Newbie","Customer Service","HR","KB",""];
-// dot = strong hue (monitor strip + accents), bg/text/border = flat pill treatment
 const roleStyle = {
   "Supervisor":      {dot:"#7C3AED", bg:"#F4F0FF", text:"#6D28D9", border:"#E4DBFF"},
   "CORA":            {dot:"#0284C7", bg:"#E9F5FE", text:"#0369A1", border:"#CDEBFB"},
@@ -153,7 +154,6 @@ const STANDARD_SLOTS=["CPU","Monitor","Mouse","Keyboard","Headset"];
 const MAX_PER_TYPE={Monitor:3,CPU:1,Mouse:1,Keyboard:1,Headset:1,Laptop:1};
 const deviceIcon={CPU:"🖥️",Monitor:"🖥️",Mouse:"🖱️",Headset:"🎧",Keyboard:"⌨️",Laptop:"💻",Extras:"📦"};
 const emptyDevice=()=>({type:"CPU",model:"",sn:"",tag:""});
-// Everyone gets a slot for each standard device type.
 const withStandardSlots=(devs)=>{const out=[...(devs||[])];
   STANDARD_SLOTS.forEach(t=>{if(!out.some(d=>d.type===t))out.push({type:t,model:"",sn:"",tag:""});});
   const order=DEVICE_TYPES;return out.sort((a,b)=>order.indexOf(a.type)-order.indexOf(b.type));};
@@ -202,9 +202,7 @@ const seed=[
 ];
 
 const defaultState={cubicles:seed.map(c=>({...c,devices:[],notes:""})),wfh:[],rows:8,cols:11};
-const STORAGE_KEY="office_map_v1";
 
-// ---- shared style helpers (modern flat) ----
 const btn=(bg,text,extra={})=>({background:bg,color:text,border:"none",borderRadius:"var(--r-sm)",padding:"8px 14px",fontSize:12.5,fontWeight:600,cursor:"pointer",boxShadow:"var(--sh-1)",lineHeight:1,letterSpacing:"-.1px",...extra});
 const ghost=(extra={})=>({background:"var(--surface)",color:"var(--ink-2)",border:"1px solid var(--line)",borderRadius:"var(--r-sm)",padding:"8px 12px",fontSize:12.5,fontWeight:600,cursor:"pointer",boxShadow:"none",lineHeight:1,...extra});
 const iStyle={width:"100%",padding:"9px 11px",borderRadius:"var(--r-sm)",border:"1px solid var(--line-2)",fontSize:13,boxSizing:"border-box",background:"var(--surface)",color:"var(--ink)",transition:"box-shadow .12s ease, border-color .12s ease"};
@@ -253,10 +251,10 @@ function App(){
   const [wfhDevicesForm,setWfhDevicesForm]=useState(null);
   const [wfhExpandedDevices,setWfhExpandedDevices]=useState({});
   const [returnCoords,setReturnCoords]=useState({});
+  const [pendingCell,setPendingCell]=useState(null);
   const dragItem=useRef(null);
   const [inventory,setInventory]=useState([]);
 
-  // Live inventory (shared with the Inventory tab)
   useEffect(()=>{
     if(!window.ShiftMap||!window.ShiftMap.subscribeInventory) return;
     let un=()=>{};
@@ -264,7 +262,6 @@ function App(){
     return ()=>{try{un();}catch{}};
   },[]);
 
-  // Map edit -> inventory write (Computer device is the workstation record)
   function pushToInventory(personName, devs){
     if(!window.ShiftMap||!window.ShiftMap.syncPersonDevices) return;
     if(!personName) return;
@@ -272,18 +269,20 @@ function App(){
       .catch(e=>showToast("Inventory not updated: "+e.message,"error"));
   }
 
-  // Inventory -> map: fill each seat's Computer device from the inventory record
+  function invFor(name){
+    const n=(name||"").trim().toLowerCase();
+    if(!n) return null;
+    return inventory.find(i=>(i.assigned_to||"").trim().toLowerCase()===n)||null;
+  }
+
   function pullFromInventory(){
     if(!inventory.length){showToast("Inventory is empty","error");return;}
     let n=0;
     const apply=(list)=>list.map(c=>{
-      const rec=invFor(c.name);
-      if(!rec) return c;
       const recs=inventory.filter(i=>(i.assigned_to||"").trim().toLowerCase()===(c.name||"").trim().toLowerCase());
       if(!recs.length) return c;
       const devs=withStandardSlots([]);
-      const used={};
-      recs.forEach(r=>{const cat=r.category||"Extras";used[cat]=(used[cat]||0)+1;
+      recs.forEach(r=>{const cat=r.category||"Extras";
         const slot=devs.find(d=>d.type===cat&&!d.model&&!d.sn);
         const item={type:cat,model:r.model||"",sn:r.serial||"",tag:r.tag||""};
         if(slot){Object.assign(slot,item);}else{devs.push(item);}});
@@ -294,14 +293,6 @@ function App(){
     showToast(n?`Filled ${n} from inventory — click Save`:"No matching names found",n?"success":"error");
   }
 
-  // Look up a person's inventory record by name (case-insensitive)
-  function invFor(name){
-    const n=(name||"").trim().toLowerCase();
-    if(!n) return null;
-    return inventory.find(i=>(i.assigned_to||"").trim().toLowerCase()===n)||null;
-  }
-
-  // Live shared map: subscribe once; apply remote unless we have local unsaved edits.
   useEffect(()=>{
     if(!window.ShiftMap) return;
     let unsub=()=>{};
@@ -344,7 +335,14 @@ function App(){
   const toastBg={success:"var(--ok)",error:"var(--danger)",info:"#1B1F26"};
   function showToast(msg,type="info"){setToast(msg);setToastType(type);setTimeout(()=>setToast(""),2400);}
 
-  function selectCubicle(c){if(dragging)return;setSelected(c);setPanel("view");setDevicesForm(withStandardSlots((c.devices||[]).map(d=>({...d}))));setPersonForm({name:c.name,role:c.role});setExpandedDevices({});}
+  function selectCubicle(c){if(dragging)return;setPendingCell(null);setSelected(c);setPanel("view");setDevicesForm(withStandardSlots((c.devices||[]).map(d=>({...d}))));setPersonForm({name:c.name,role:c.role});setExpandedDevices({});}
+
+  function openCellChooser(row,col){if(dragging)return;setSelected(null);setPanel("view");setPendingCell({row,col});}
+  function chooseCellType(kind){
+    if(!pendingCell)return;
+    setAddForm({name:"",role:"",row:String(pendingCell.row),col:String(pendingCell.col)});
+    setPanel(kind==="block"?"addblack":"add");
+  }
 
   function resizeGrid(dr,dc){
     const nr=Math.max(1,ROWS+dr),nc=Math.max(1,COLS+dc);
@@ -361,13 +359,10 @@ function App(){
     setSelected(s=>({...s,name:newName,role:personForm.role}));
     setPanel("view");
     if(oldName && newName!==oldName){
-      // seat cleared or reassigned to someone else: release the OLD occupant's devices
-      // (their inventory rows move to Unassigned, they are never deleted here)
       pushToInventory(oldName, []);
     }
     showToast(newName?"Updated":"Seat cleared — devices moved to Unassigned");
   }
-  // Empty this seat entirely: no name, no role, devices released to Unassigned.
   function clearSeat(){
     if(!selected) return;
     const oldName=selected.name;
@@ -393,7 +388,7 @@ function App(){
     if(!r||!co||r<1||r>ROWS||co<1||co>COLS){showToast(`Row 1–${ROWS}, Col 1–${COLS}`,"error");return;}
     if(grid[`${r}-${co}`]){showToast("Spot taken","error");return;}
     const nc={id:nextId,name:addForm.name.trim()||"",role:"__block__",row:r,col:co,devices:[],notes:""};
-    pushState({cubicles:[...cubicles,nc]});setNextId(n=>n+1);setAddForm({name:"",role:"",row:"",col:""});setPanel("view");showToast("Block placed");
+    pushState({cubicles:[...cubicles,nc]});setNextId(n=>n+1);setAddForm({name:"",role:"",row:"",col:""});setPanel("view");setPendingCell(null);showToast("Block placed");
   }
   function addPerson(){
     const r=parseInt(addForm.row),co=parseInt(addForm.col);
@@ -401,7 +396,7 @@ function App(){
     if(!r||!co||r<1||r>ROWS||co<1||co>COLS){showToast(`Row 1–${ROWS}, Col 1–${COLS}`,"error");return;}
     if(grid[`${r}-${co}`]){showToast("Spot taken","error");return;}
     const nc={id:nextId,name:addForm.name.trim(),role:addForm.role,row:r,col:co,devices:[],notes:""};
-    pushState({cubicles:[...cubicles,nc]});setNextId(n=>n+1);setAddForm({name:"",role:"",row:"",col:""});setPanel("view");showToast(`${nc.name} added`);
+    pushState({cubicles:[...cubicles,nc]});setNextId(n=>n+1);setAddForm({name:"",role:"",row:"",col:""});setPanel("view");setPendingCell(null);showToast(`${nc.name} added`);
   }
   function addToWFH(){if(!wfhForm.name.trim()){showToast("Name required","error");return;}const nc={id:nextId,name:wfhForm.name.trim(),role:wfhForm.role,devices:[],notes:""};pushState({wfh:[...wfh,nc]});setNextId(n=>n+1);setWfhForm({name:"",role:""});showToast(`${nc.name} added to WFH`);}
   function saveWfhDevices(){pushState({wfh:wfh.map(w=>w.id===wfhSelected.id?{...w,devices:wfhDevicesForm}:w)});setWfhSelected(s=>({...s,devices:wfhDevicesForm}));setWfhPanel("view");pushToInventory(wfhSelected.name,wfhDevicesForm);showToast("Devices saved — inventory updated");}
@@ -425,7 +420,6 @@ function App(){
 
   const fmtDate=iso=>{if(!iso)return null;const d=new Date(iso);return d.toLocaleDateString()+' '+d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});};
 
-  // segmented control (tabs)
   const Segment=({options,value,onChange})=>(
     <div style={{display:"flex",gap:3,background:"var(--surface-2)",border:"1px solid var(--line)",borderRadius:"var(--r-sm)",padding:3,marginBottom:14}}>
       {options.map(([p,label])=>{const on=value===p;return(
@@ -495,8 +489,8 @@ function App(){
   );
 
   return (
-    <div style={{minHeight:"100%",padding:"20px 16px 40px"}}>
-      <div style={{maxWidth:1240,margin:"0 auto"}}>
+    <div style={{minHeight:"100%",padding:"20px 16px 40px",width:"100%",boxSizing:"border-box"}}>
+      <div style={{maxWidth:1600,margin:"0 auto",width:"100%"}}>
 
         {toast&&<div className="toast-in" style={{position:"fixed",top:18,left:"50%",transform:"translateX(-50%)",background:toastBg[toastType]||"#1B1F26",color:"#fff",padding:"11px 20px",borderRadius:"var(--r)",fontSize:13,fontWeight:600,zIndex:9999,boxShadow:"var(--sh-3)",pointerEvents:"none",letterSpacing:"-.1px"}}>{toast}</div>}
 
@@ -587,11 +581,10 @@ function App(){
           </div>
         )}
 
-        {/* Header */}
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16,flexWrap:"wrap",gap:12}}>
           <div>
             <h1 style={{fontSize:24,fontWeight:800,letterSpacing:"-.5px",color:"var(--ink)"}}>Office floor</h1>
-            <p style={{marginTop:4,fontSize:12.5,color:"var(--ink-2)"}}>Click a desk to manage · drag to move or swap · <span style={mono}>{ROWS}×{COLS}</span></p>
+            <p style={{marginTop:4,fontSize:12.5,color:"var(--ink-2)"}}>Click a desk to manage · click an empty spot to add · drag to move or swap · <span style={mono}>{ROWS}×{COLS}</span></p>
           </div>
           <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
             <div style={{display:"flex",gap:4}}>
@@ -605,8 +598,8 @@ function App(){
             </div>
             {search&&<span style={{fontSize:12,color:"var(--brand-ink)",fontWeight:700}}>{hlIds.size+whlIds.size} match{hlIds.size+whlIds.size!==1?"es":""}</span>}
             <button onClick={()=>setShowWFH(true)} style={{...btn("var(--ink)","#fff")}}>WFH {wfh.length>0&&<span style={{background:"#fff",color:"var(--ink)",borderRadius:999,padding:"1px 6px",fontSize:10,fontWeight:800,marginLeft:5}}>{wfh.length}</span>}</button>
-            <button onClick={()=>{setSelected(null);setPanel("addblack");setAddForm({name:"",role:"",row:"",col:""}); }} style={{...ghost()}}>Add block</button>
-            <button onClick={()=>{setSelected(null);setPanel("add");setAddForm({name:"",role:"",row:"",col:""});}} style={{...btn("var(--brand)","#fff")}}>Add person</button>
+            <button onClick={()=>{setPendingCell(null);setSelected(null);setPanel("addblack");setAddForm({name:"",role:"",row:"",col:""}); }} style={{...ghost()}}>Add block</button>
+            <button onClick={()=>{setPendingCell(null);setSelected(null);setPanel("add");setAddForm({name:"",role:"",row:"",col:""});}} style={{...btn("var(--brand)","#fff")}}>Add person</button>
             <button onClick={pullFromInventory} title="Fill each person's devices from the Inventory tab" style={{...ghost()}}>Pull inventory</button>
             <button onClick={saveMap} style={{...btn(hasUnsaved?"var(--ok)":"var(--surface)",hasUnsaved?"#fff":"var(--ink-3)"),border:hasUnsaved?"none":"1px solid var(--line)",boxShadow:hasUnsaved?"var(--sh-1)":"none",minWidth:80}}>{hasUnsaved?"Save":"Saved"}</button>
           </div>
@@ -616,7 +609,6 @@ function App(){
           {savedAt?<span>{hasUnsaved?"● Unsaved · ":"✓ "}Last saved <span style={mono}>{fmtDate(savedAt)}</span></span>:<span>{hasUnsaved?"● Unsaved changes — click Save":"No save yet — click Save"}</span>}
         </div>
 
-        {/* Controls row: resize + legend */}
         <div style={{display:"flex",gap:12,marginBottom:14,alignItems:"center",flexWrap:"wrap",justifyContent:"space-between"}}>
           <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
             <span style={{fontSize:11,fontWeight:700,color:"var(--ink-2)",textTransform:"uppercase",letterSpacing:".04em"}}>Room size</span>
@@ -639,13 +631,12 @@ function App(){
         </div>
 
         <div style={{display:"flex",gap:16,alignItems:"flex-start",flexWrap:"wrap"}}>
-          {/* Map */}
-          <div style={{background:"var(--surface)",borderRadius:"var(--r-lg)",border:"1px solid var(--line)",boxShadow:"var(--sh-1)",padding:16,flex:"1 1 620px",overflowX:"auto"}}>
+          <div style={{background:"var(--surface)",borderRadius:"var(--r-lg)",border:"1px solid var(--line)",boxShadow:"var(--sh-1)",padding:16,flex:"1 1 620px",minWidth:0,overflowX:"auto"}}>
             <div className="eyebrow" style={{marginBottom:10}}>Back of room</div>
-            <div style={{background:"var(--floor)",borderRadius:"var(--r)",padding:16,width:"fit-content",minWidth:"100%",
+            <div style={{background:"var(--floor)",borderRadius:"var(--r)",padding:16,width:"100%",minWidth:280,
               backgroundImage:"linear-gradient(var(--floor-line) 1px,transparent 1px),linear-gradient(90deg,var(--floor-line) 1px,transparent 1px)",
               backgroundSize:"85px 69px",backgroundPosition:"15px 15px"}}>
-              <div style={{display:"grid",gridTemplateColumns:`repeat(${COLS}, 82px)`,gridTemplateRows:`repeat(${ROWS}, 66px)`,gap:3,minWidth:COLS*85,margin:"0 auto",width:"fit-content"}}>
+              <div style={{display:"grid",gridTemplateColumns:`repeat(${COLS}, minmax(56px, 1fr))`,gridTemplateRows:`repeat(${ROWS}, 66px)`,gap:3,width:"100%"}}>
                 {Array.from({length:ROWS},(_,r)=>Array.from({length:COLS},(_,c)=>{
                   const row=r+1,col=c+1,key=`${row}-${col}`;
                   const cub=grid[key];
@@ -658,8 +649,10 @@ function App(){
                   const isEmpty=cub&&!isBlock&&!cub.name;
                   const s=cub?(isBlock?{dot:"#3A424E"}:(roleStyle[cub.role]||roleStyle[""])):null;
                   const cubDevices=cub?.devices||[];
-                  if(!cub)return(<div key={key} onDragOver={e=>handleDragOver(e,row,col)} onDrop={e=>handleDrop(e,row,col)}
-                    style={{borderRadius:"var(--r-xs)",background:isOver?"var(--brand-wash)":"transparent",border:isOver?"2px dashed var(--brand)":"1px dashed transparent",transition:"background .1s"}}/>);
+                  const isPending=pendingCell&&pendingCell.row===row&&pendingCell.col===col;
+                  if(!cub)return(<div key={key} className="desk-empty" onClick={()=>openCellChooser(row,col)} onDragOver={e=>handleDragOver(e,row,col)} onDrop={e=>handleDrop(e,row,col)}
+                    title="Click to add"
+                    style={{borderRadius:"var(--r-xs)",cursor:"pointer",background:isPending?"var(--brand-wash)":isOver?"var(--brand-wash)":"transparent",border:isPending?"2px solid var(--brand)":isOver?"2px dashed var(--brand)":"1px dashed transparent"}}/>);
                   const cls=`desk${isSel?" desk--sel":""}${isMatch?" desk--match":""}${isOver&&dragging?.id!==cub.id?" desk--over":""}`;
                   return(
                     <div key={key} draggable className={cls} onDragStart={e=>handleDragStart(e,cub)} onDragEnd={handleDragEnd}
@@ -670,7 +663,6 @@ function App(){
                         borderRadius:"var(--r)",padding:"12px 6px 8px",cursor:dragging?"grabbing":"pointer",
                         display:"flex",flexDirection:"column",justifyContent:"center",alignItems:"center",gap:2,
                         textAlign:"center",opacity:isDraggingThis?0.4:isDimmed?0.28:1,userSelect:"none",overflow:"hidden"}}>
-                      {/* monitor / back-of-desk strip */}
                       {!isBlock&&<div style={{position:"absolute",top:6,left:"50%",transform:"translateX(-50%)",width:26,height:4,borderRadius:3,background:isEmpty?"#DEE2E9":s.dot}}/>}
                       <div style={{position:"absolute",top:5,right:6,fontSize:9,color:isBlock?"#5A626E":"#C6CDD7",lineHeight:1}}>⠿</div>
                       <div style={{fontSize:11.5,fontWeight:700,letterSpacing:"-.15px",color:isBlock?"#AEB6C2":isEmpty?"var(--ink-3)":"var(--ink)",lineHeight:1.15,fontStyle:isEmpty?"italic":"normal",maxWidth:"100%",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{isBlock?(cub.name||"Reserved"):isEmpty?"Open desk":cub.name}</div>
@@ -685,13 +677,27 @@ function App(){
             {dragging&&<div style={{textAlign:"center",marginTop:8,fontSize:12,color:"var(--brand-ink)",fontWeight:600}}>Drop to move or swap</div>}
           </div>
 
-          {/* Side Panel */}
           <div style={{width:290,flexShrink:0}}>
+            {pendingCell&&!selected&&panel!=="add"&&panel!=="addblack"&&(
+              <div style={{background:"var(--surface)",borderRadius:"var(--r-lg)",border:"1px solid var(--line)",boxShadow:"var(--sh-1)",padding:18}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+                  <div style={{fontSize:15.5,fontWeight:700}}>Row {pendingCell.row} · Col {pendingCell.col}</div>
+                  <button onClick={()=>setPendingCell(null)} style={{background:"none",border:"none",fontSize:19,cursor:"pointer",color:"var(--ink-3)"}}>×</button>
+                </div>
+                <div style={{fontSize:12.5,color:"var(--ink-2)",marginBottom:14}}>What goes here?</div>
+                <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                  <button onClick={()=>chooseCellType("person")} style={{...btn("var(--brand)","#fff"),padding:"10px 0"}}>Add person</button>
+                  <button onClick={()=>chooseCellType("block")} style={{...btn("var(--ink)","#fff"),padding:"10px 0"}}>Add block</button>
+                  <button onClick={()=>setPendingCell(null)} style={{...ghost(),padding:"10px 0"}}>Cancel</button>
+                </div>
+              </div>
+            )}
+
             {(panel==="add"||panel==="addblack")&&!selected&&(
               <div style={{background:"var(--surface)",borderRadius:"var(--r-lg)",border:"1px solid var(--line)",boxShadow:"var(--sh-1)",padding:18}}>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
                   <div style={{fontSize:15.5,fontWeight:700}}>{panel==="addblack"?"Add block":"Add person"}</div>
-                  <button onClick={()=>setPanel("view")} style={{background:"none",border:"none",fontSize:19,cursor:"pointer",color:"var(--ink-3)"}}>×</button>
+                  <button onClick={()=>{setPanel("view");setPendingCell(null);}} style={{background:"none",border:"none",fontSize:19,cursor:"pointer",color:"var(--ink-3)"}}>×</button>
                 </div>
                 {panel==="addblack"&&<div style={{fontSize:12,color:"var(--ink-2)",marginBottom:14,background:"var(--surface-2)",borderRadius:"var(--r-sm)",padding:"8px 11px",border:"1px solid var(--line)"}}>A reserved or blocked spot. Drag it anywhere after placing.</div>}
                 {(panel==="add"?[["Name","name","text"],[`Row (1–${ROWS})`,"row","number"],[`Col (1–${COLS})`,"col","number"]]:[["Label (optional)","name","text"],[`Row (1–${ROWS})`,"row","number"],[`Col (1–${COLS})`,"col","number"]]).map(([lbl,k,type])=>(
@@ -710,10 +716,10 @@ function App(){
               </div>
             )}
 
-            {!selected&&!["add","addblack"].includes(panel)&&(
+            {!selected&&!pendingCell&&!["add","addblack"].includes(panel)&&(
               <div style={{background:"var(--surface)",borderRadius:"var(--r-lg)",border:"1px solid var(--line)",boxShadow:"var(--sh-1)",padding:"28px 20px",textAlign:"center"}}>
                 <div style={{fontSize:13.5,color:"var(--ink-2)",fontWeight:600}}>Select a desk to manage it</div>
-                <div style={{fontSize:12,marginTop:6,color:"var(--ink-3)"}}>Or search by name, role, model, serial, or asset tag.</div>
+                <div style={{fontSize:12,marginTop:6,color:"var(--ink-3)"}}>Click an empty spot to add someone, or search by name, role, model, serial, or asset tag.</div>
               </div>
             )}
 
