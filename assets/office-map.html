@@ -26,6 +26,17 @@
     --sh-4:0 24px 60px rgba(16,22,34,.26);
     --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
   }
+  html.dark{
+    --floor:#0F1115; --floor-line:#232730;
+    --surface:#1C1F26; --surface-2:#161920; --surface-3:#20242C;
+    --ink:#E7E9EC; --ink-2:#9AA3AE; --ink-3:#6B7280;
+    --line:#2B2F38; --line-2:#383D48;
+    --brand:#FF7A1A; --brand-dark:#FF8C3D; --brand-ink:#FFB37A; --brand-wash:#3A2416;
+    --ok:#3ECF6E; --warn:#F5B93F; --danger:#F26B6B;
+    --sh-1:0 1px 2px rgba(0,0,0,.4); --sh-2:0 2px 10px rgba(0,0,0,.4);
+    --sh-3:0 10px 30px rgba(0,0,0,.5); --sh-4:0 24px 60px rgba(0,0,0,.6);
+  }
+  html.dark body{background:var(--surface-2);}
   body{font-family:'Inter',system-ui,sans-serif;background:var(--surface-2);color:var(--ink);-webkit-font-smoothing:antialiased;}
   button,input,select,textarea{font-family:inherit;}
   button{transition:filter .12s ease, transform .06s ease, box-shadow .14s ease, background .14s ease;}
@@ -61,6 +72,15 @@
 </head>
 <body>
 <div id="root"></div>
+<script>
+  // Same-origin iframe: shares localStorage with the parent app, so night
+  // mode follows the same "vulcan_theme" preference automatically.
+  (function(){
+    function apply(){ document.documentElement.classList.toggle("dark", localStorage.getItem("vulcan_theme")==="dark"); }
+    apply();
+    window.addEventListener("storage", (e)=>{ if(e.key==="vulcan_theme") apply(); });
+  })();
+</script>
 <script type="module">
   import { initializeApp, getApps } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
   import { getFirestore, doc, setDoc, updateDoc, addDoc, getDocs, collection, query, where, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
@@ -201,7 +221,7 @@ const seed=[
   {id:39,name:"Adrian N",role:"",row:8,col:7},
 ];
 
-const defaultState={cubicles:seed.map(c=>({...c,devices:[],notes:""})),wfh:[],rows:8,cols:11,customRoles:[],roleColors:{}};
+const defaultState={cubicles:seed.map(c=>({...c,devices:[],notes:""})),wfh:[],rows:40,cols:40,customRoles:[],roleColors:{}};
 
 const btn=(bg,text,extra={})=>({background:bg,color:text,border:"none",borderRadius:"var(--r-sm)",padding:"8px 14px",fontSize:12.5,fontWeight:600,cursor:"pointer",boxShadow:"var(--sh-1)",lineHeight:1,letterSpacing:"-.1px",...extra});
 const ghost=(extra={})=>({background:"var(--surface)",color:"var(--ink-2)",border:"1px solid var(--line)",borderRadius:"var(--r-sm)",padding:"8px 12px",fontSize:12.5,fontWeight:600,cursor:"pointer",boxShadow:"none",lineHeight:1,...extra});
@@ -255,9 +275,50 @@ function App(){
   const [zoom,setZoom]=useState(1);
   const [newRolePrompt,setNewRolePrompt]=useState(null);
   const [newRoleName,setNewRoleName]=useState("");
+  const [newRoleColor,setNewRoleColor]=useState("#FF6A00");
   const [roleEditor,setRoleEditor]=useState(null);
   const [pendingRoleColor,setPendingRoleColor]=useState("#FF6A00");
   const dragItem=useRef(null);
+  const gridRef=useRef(null);
+  const [resizing,setResizing]=useState(null); // {id,startX,startY,startW,startH,cellW,cellH,row,col}
+  const [resizePreview,setResizePreview]=useState(null); // {id,w,h} live preview while dragging
+  const resizePreviewRef=useRef(null);
+  useEffect(()=>{resizePreviewRef.current=resizePreview;},[resizePreview]);
+
+  function startResize(e,cub){
+    e.stopPropagation();e.preventDefault();
+    const rect=gridRef.current?gridRef.current.getBoundingClientRect():null;
+    const cellW=rect?rect.width/COLS:56*zoom;
+    const cellH=Math.round(66*zoom);
+    setResizing({id:cub.id,startX:e.clientX,startY:e.clientY,startW:cub.w||1,startH:cub.h||1,cellW,cellH,row:cub.row,col:cub.col});
+    setResizePreview({id:cub.id,w:cub.w||1,h:cub.h||1});
+  }
+  useEffect(()=>{
+    if(!resizing) return;
+    function onMove(e){
+      const dCols=Math.round((e.clientX-resizing.startX)/resizing.cellW);
+      const dRows=Math.round((e.clientY-resizing.startY)/resizing.cellH);
+      let w=Math.max(1,resizing.startW+dCols);
+      let h=Math.max(1,resizing.startH+dRows);
+      w=Math.min(w,COLS-resizing.col+1);
+      h=Math.min(h,ROWS-resizing.row+1);
+      // Don't grow into a cell already occupied by something else.
+      while(w>1&&cubicles.some(c=>c.id!==resizing.id&&c.row>=resizing.row&&c.row<resizing.row+h&&c.col===resizing.col+w-1)) w--;
+      while(h>1&&cubicles.some(c=>c.id!==resizing.id&&c.col>=resizing.col&&c.col<resizing.col+w&&c.row===resizing.row+h-1)) h--;
+      setResizePreview({id:resizing.id,w,h});
+    }
+    function onUp(){
+      const preview=resizePreviewRef.current;
+      if(preview){
+        pushState({cubicles:cubicles.map(c=>c.id===preview.id?{...c,w:preview.w,h:preview.h}:c)});
+        showToast(`Resized to ${preview.w}×${preview.h}`);
+      }
+      setResizing(null);setResizePreview(null);
+    }
+    window.addEventListener("mousemove",onMove);
+    window.addEventListener("mouseup",onUp);
+    return ()=>{window.removeEventListener("mousemove",onMove);window.removeEventListener("mouseup",onUp);};
+  },[resizing]);
   const [inventory,setInventory]=useState([]);
 
   useEffect(()=>{
@@ -348,6 +409,18 @@ function App(){
   function redo(){if(!canRedo)return;setHistPtr(p=>p+1);setSelected(null);setHasUnsaved(true);showToast("Redone");}
 
   const grid={};cubicles.forEach(c=>{grid[`${c.row}-${c.col}`]=c;});
+  // Cells covered by a spanning block/wall (excluding its own origin) are skipped
+  // when rendering, so CSS grid's auto-placement flows correctly around it.
+  const covered=new Set();
+  cubicles.forEach(c=>{
+    if(c.role!=="__block__"&&c.role!=="__wall__") return;
+    const wv=(resizePreview&&resizePreview.id===c.id)?resizePreview.w:(c.w||1);
+    const hv=(resizePreview&&resizePreview.id===c.id)?resizePreview.h:(c.h||1);
+    for(let rr=c.row;rr<c.row+hv;rr++)for(let cc=c.col;cc<c.col+wv;cc++){
+      if(rr===c.row&&cc===c.col) continue;
+      covered.add(`${rr}-${cc}`);
+    }
+  });
   const hlIds=search.trim()?new Set(cubicles.filter(c=>matches(c,search)).map(c=>c.id)):new Set();
   const whlIds=search.trim()?new Set(wfh.filter(c=>matches(c,search)).map(c=>c.id)):new Set();
 
@@ -364,7 +437,7 @@ function App(){
     setPanel(kind==="block"?"addblack":kind==="wall"?"addwall":"add");
   }
   function placeEmptySeatAt(row,col){
-    if(grid[`${row}-${col}`]){showToast("Spot taken","error");return;}
+    if(grid[`${row}-${col}`]||covered.has(`${row}-${col}`)){showToast("Spot taken","error");return;}
     const nc={id:nextId,name:"",role:"",row,col,devices:[],notes:""};
     pushState({cubicles:[...cubicles,nc]});
     setNextId(n=>n+1);
@@ -374,17 +447,18 @@ function App(){
   function addEmptySeatFromForm(){
     const r=parseInt(addForm.row),co=parseInt(addForm.col);
     if(!r||!co||r<1||r>ROWS||co<1||co>COLS){showToast(`Row 1–${ROWS}, Col 1–${COLS}`,"error");return;}
-    if(grid[`${r}-${co}`]){showToast("Spot taken","error");return;}
+    if(grid[`${r}-${co}`]||covered.has(`${r}-${co}`)){showToast("Spot taken","error");return;}
     const nc={id:nextId,name:"",role:"",row:r,col:co,devices:[],notes:""};
     pushState({cubicles:[...cubicles,nc]});setNextId(n=>n+1);setAddForm({name:"",role:"",row:"",col:""});setPanel("view");setPendingCell(null);showToast("Empty seat added");
   }
 
-  function requestNewRole(forWhich){setNewRoleName("");setNewRolePrompt(forWhich);}
+  function requestNewRole(forWhich){setNewRoleName("");setNewRoleColor("#FF6A00");setNewRolePrompt(forWhich);}
   function confirmNewRole(){
     const name=newRoleName.trim();
     if(!name){showToast("Type a role name","error");return;}
     const dup=[...BASE_ROLES,...customRoles].some(r=>r.toLowerCase()===name.toLowerCase());
-    if(!dup) pushState({customRoles:[...customRoles,name]});
+    if(!dup) pushState({customRoles:[...customRoles,name],roleColors:{...roleColors,[name]:newRoleColor}});
+    else pushState({roleColors:{...roleColors,[name]:newRoleColor}});
     if(newRolePrompt==="add") setAddForm(f=>({...f,role:name}));
     if(newRolePrompt==="person") setPersonForm(f=>({...f,role:name}));
     if(newRolePrompt==="wfh") setWfhForm(f=>({...f,role:name}));
@@ -423,6 +497,7 @@ function App(){
 
   function resizeGrid(dr,dc){
     let next=cubicles, nr=ROWS, nc=COLS;
+    // Columns: "+" inserts space on the LEFT (existing desks shift right).
     if(dc>0){
       nc=COLS+dc;
       next=next.map(c=>({...c,col:c.col+dc}));
@@ -432,17 +507,25 @@ function App(){
       nc=Math.max(1,COLS-remove);
       next=next.map(c=>({...c,col:c.col-remove}));
     }
+    // Rows: "+" appends space at the BOTTOM — nobody's position changes.
     if(dr>0){
       nr=ROWS+dr;
-      next=next.map(c=>({...c,row:c.row+dr}));
     } else if(dr<0){
       const remove=Math.min(-dr,ROWS-1);
-      if(cubicles.some(c=>c.row<=remove)){showToast("Top row has desks — move them first","error");return;}
+      const cutoff=ROWS-remove;
+      if(cubicles.some(c=>c.row>cutoff)){showToast("Bottom row has desks — move them first","error");return;}
       nr=Math.max(1,ROWS-remove);
-      next=next.map(c=>({...c,row:c.row-remove}));
     }
     pushState({rows:nr,cols:nc,cubicles:next});
     showToast(`${nr}×${nc}`);
+  }
+  // One-click bulk growth: adds room at the far bottom/right without moving
+  // anyone, for when the floor is running out of space.
+  function growRoom(){
+    const nr=Math.max(ROWS,40), nc=Math.max(COLS,40);
+    if(nr===ROWS&&nc===COLS){showToast("Already at least 40×40");return;}
+    pushState({rows:nr,cols:nc});
+    showToast(`Grew room to ${nr}×${nc}`);
   }
 
   function saveDevices(){pushState({cubicles:cubicles.map(c=>c.id===selected.id?{...c,devices:devicesForm}:c)});setSelected(s=>({...s,devices:devicesForm}));setPanel("view");pushToInventory(selected.name,devicesForm);showToast("Devices saved — inventory updated");}
@@ -474,29 +557,29 @@ function App(){
     if(!row||!col){showToast("Enter row & col","error");return;}
     const r=parseInt(row),co=parseInt(col);
     if(isNaN(r)||isNaN(co)||r<1||r>ROWS||co<1||co>COLS){showToast(`Row 1–${ROWS}, Col 1–${COLS}`,"error");return;}
-    if(grid[`${r}-${co}`]){showToast("Spot taken","error");return;}
+    if(grid[`${r}-${co}`]||covered.has(`${r}-${co}`)){showToast("Spot taken","error");return;}
     pushState({cubicles:[...cubicles,{...person,row:r,col:co}],wfh:wfh.filter(w=>w.id!==person.id)});
     setWfhSelected(null);showToast(`${person.name} back on map`);
   }
   function addBlock(){
     const r=parseInt(addForm.row),co=parseInt(addForm.col);
     if(!r||!co||r<1||r>ROWS||co<1||co>COLS){showToast(`Row 1–${ROWS}, Col 1–${COLS}`,"error");return;}
-    if(grid[`${r}-${co}`]){showToast("Spot taken","error");return;}
-    const nc={id:nextId,name:addForm.name.trim()||"",role:"__block__",row:r,col:co,devices:[],notes:""};
+    if(grid[`${r}-${co}`]||covered.has(`${r}-${co}`)){showToast("Spot taken","error");return;}
+    const nc={id:nextId,name:addForm.name.trim()||"",role:"__block__",row:r,col:co,devices:[],notes:"",w:1,h:1};
     pushState({cubicles:[...cubicles,nc]});setNextId(n=>n+1);setAddForm({name:"",role:"",row:"",col:""});setPanel("view");setPendingCell(null);showToast("Block placed");
   }
   function addWall(){
     const r=parseInt(addForm.row),co=parseInt(addForm.col);
     if(!r||!co||r<1||r>ROWS||co<1||co>COLS){showToast(`Row 1–${ROWS}, Col 1–${COLS}`,"error");return;}
-    if(grid[`${r}-${co}`]){showToast("Spot taken","error");return;}
-    const nc={id:nextId,name:addForm.name.trim()||"",role:"__wall__",row:r,col:co,devices:[],notes:""};
+    if(grid[`${r}-${co}`]||covered.has(`${r}-${co}`)){showToast("Spot taken","error");return;}
+    const nc={id:nextId,name:addForm.name.trim()||"",role:"__wall__",row:r,col:co,devices:[],notes:"",w:1,h:1};
     pushState({cubicles:[...cubicles,nc]});setNextId(n=>n+1);setAddForm({name:"",role:"",row:"",col:""});setPanel("view");setPendingCell(null);showToast("Wall placed");
   }
   function addPerson(){
     const r=parseInt(addForm.row),co=parseInt(addForm.col);
     if(!addForm.name.trim()){showToast("Name required","error");return;}
     if(!r||!co||r<1||r>ROWS||co<1||co>COLS){showToast(`Row 1–${ROWS}, Col 1–${COLS}`,"error");return;}
-    if(grid[`${r}-${co}`]){showToast("Spot taken","error");return;}
+    if(grid[`${r}-${co}`]||covered.has(`${r}-${co}`)){showToast("Spot taken","error");return;}
     const nc={id:nextId,name:addForm.name.trim(),role:addForm.role,row:r,col:co,devices:[],notes:""};
     pushState({cubicles:[...cubicles,nc]});setNextId(n=>n+1);setAddForm({name:"",role:"",row:"",col:""});setPanel("view");setPendingCell(null);showToast(`${nc.name} added`);
   }
@@ -617,7 +700,12 @@ function App(){
               <div style={{fontSize:12.5,color:"var(--ink-2)",marginBottom:14}}>Shared with everyone once added.</div>
               <input autoFocus value={newRoleName} onChange={e=>setNewRoleName(e.target.value)}
                 onKeyDown={e=>{if(e.key==="Enter")confirmNewRole();if(e.key==="Escape")setNewRolePrompt(null);}}
-                placeholder="e.g. Team Lead" style={{...iStyle,marginBottom:14}}/>
+                placeholder="e.g. Team Lead" style={{...iStyle,marginBottom:12}}/>
+              <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}>
+                <input type="color" value={newRoleColor} onChange={e=>setNewRoleColor(e.target.value)}
+                  style={{width:44,height:36,border:"1px solid var(--line-2)",borderRadius:8,padding:2,cursor:"pointer",background:"var(--surface)"}}/>
+                <span style={{fontSize:12,color:"var(--ink-2)"}}>Color for this role</span>
+              </div>
               <div style={{display:"flex",gap:8}}>
                 <button onClick={()=>setNewRolePrompt(null)} style={{...ghost(),flex:1,padding:"9px 0"}}>Cancel</button>
                 <button onClick={confirmNewRole} style={{...btn("var(--brand)","#fff"),flex:1,padding:"9px 0"}}>Add role</button>
@@ -745,6 +833,7 @@ function App(){
             <button onClick={()=>{setPendingCell(null);setSelected(null);setPanel("addempty");setAddForm({name:"",role:"",row:"",col:""});}} style={{...ghost()}}>Add empty seat</button>
             <button onClick={()=>{setPendingCell(null);setSelected(null);setPanel("add");setAddForm({name:"",role:"",row:"",col:""});}} style={{...btn("var(--brand)","#fff")}}>Add person</button>
             <button onClick={pullFromInventory} title="Fill each person's devices from the Inventory tab" style={{...ghost()}}>Pull inventory</button>
+            <button onClick={growRoom} title="Add space at the bottom/right without moving anyone" style={{...ghost()}}>Grow room</button>
             <button onClick={saveMap} style={{...btn(hasUnsaved?"var(--ok)":"var(--surface)",hasUnsaved?"#fff":"var(--ink-3)"),border:hasUnsaved?"none":"1px solid var(--line)",boxShadow:hasUnsaved?"var(--sh-1)":"none",minWidth:80}}>{hasUnsaved?"Save":"Saved"}</button>
           </div>
         </div>
@@ -795,12 +884,13 @@ function App(){
             <div style={{background:"var(--floor)",borderRadius:"var(--r)",padding:16,width:"100%",minWidth:280,
               backgroundImage:"linear-gradient(var(--floor-line) 1px,transparent 1px),linear-gradient(90deg,var(--floor-line) 1px,transparent 1px)",
               backgroundSize:"85px 69px",backgroundPosition:"15px 15px"}}>
-              <div style={{display:"grid",
+              <div ref={gridRef} style={{display:"grid",
                 gridTemplateColumns:zoom===1?`repeat(${COLS}, minmax(56px, 1fr))`:`repeat(${COLS}, ${Math.round(56*zoom)}px)`,
                 gridTemplateRows:`repeat(${ROWS}, ${Math.round(66*zoom)}px)`,
                 gap:Math.max(1,Math.round(3*zoom)),width:zoom===1?"100%":"fit-content"}}>
                 {Array.from({length:ROWS},(_,r)=>Array.from({length:COLS},(_,c)=>{
                   const row=r+1,col=c+1,key=`${row}-${col}`;
+                  if(covered.has(key)) return null;
                   const cub=grid[key];
                   const isOver=dragOver?.row===row&&dragOver?.col===col;
                   const isDraggingThis=dragging&&cub&&dragging.id===cub.id;
@@ -814,14 +904,17 @@ function App(){
                   const s=cub?(isReserved?{dot:"#3A424E"}:styleFor(cub.role)):null;
                   const cubDevices=cub?.devices||[];
                   const isPending=pendingCell&&pendingCell.row===row&&pendingCell.col===col;
+                  const spanW=(isReserved&&resizePreview&&resizePreview.id===cub.id)?resizePreview.w:(cub?.w||1);
+                  const spanH=(isReserved&&resizePreview&&resizePreview.id===cub.id)?resizePreview.h:(cub?.h||1);
                   if(!cub)return(<div key={key} className="desk-empty" onClick={()=>openCellChooser(row,col)} onDragOver={e=>handleDragOver(e,row,col)} onDrop={e=>handleDrop(e,row,col)}
                     title="Click to add"
                     style={{borderRadius:"var(--r-xs)",cursor:"pointer",background:isPending?"var(--brand-wash)":isOver?"var(--brand-wash)":"transparent",border:isPending?"2px solid var(--brand)":isOver?"2px dashed var(--brand)":"1px dashed transparent"}}/>);
                   const cls=`desk${isSel?" desk--sel":""}${isMatch?" desk--match":""}${isOver&&dragging?.id!==cub.id?" desk--over":""}`;
                   return(
-                    <div key={key} draggable className={cls} onDragStart={e=>handleDragStart(e,cub)} onDragEnd={handleDragEnd}
+                    <div key={key} draggable={!isReserved||!isSel} className={cls} onDragStart={e=>handleDragStart(e,cub)} onDragEnd={handleDragEnd}
                       onDragOver={e=>handleDragOver(e,row,col)} onDrop={e=>handleDrop(e,row,col)} onClick={()=>selectCubicle(cub)}
                       style={{position:"relative",
+                        gridColumn:isReserved?`span ${spanW}`:undefined,gridRow:isReserved?`span ${spanH}`:undefined,
                         background:isWall?"repeating-linear-gradient(45deg,#6B7280,#6B7280 6px,#4B5563 6px,#4B5563 12px)":isBlock?"#20262F":isMatch?"#FEF7DC":isOver&&dragging?.id!==cub.id?"var(--brand-wash)":isEmpty?"var(--surface)":s.bg,
                         border:isWall?"1px solid #374151":isBlock?"1px solid #161B22":isEmpty?"1.5px dashed var(--line-2)":`1px solid ${s.border}`,
                         borderRadius:isWall?3:"var(--r)",padding:`${Math.max(4,Math.round(12*Math.min(zoom,1.2)))}px ${Math.max(2,Math.round(6*Math.min(zoom,1.2)))}px ${Math.max(3,Math.round(8*Math.min(zoom,1.2)))}px`,cursor:dragging?"grabbing":"pointer",
@@ -832,6 +925,9 @@ function App(){
                       {(!isWall||cub.name)&&<div style={{fontSize:Math.max(7,Math.round(11.5*Math.min(zoom,1.2))),fontWeight:700,letterSpacing:"-.15px",color:isBlock?"#AEB6C2":isWall?"#F3F4F6":isEmpty?"var(--ink-3)":"var(--ink)",lineHeight:1.15,fontStyle:isEmpty?"italic":"normal",maxWidth:"100%",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{isBlock?(cub.name||"Reserved"):isWall?cub.name:isEmpty?"Open desk":cub.name}</div>}
                       {!isReserved&&cub.role&&zoom>=0.7&&<div style={{fontSize:Math.max(6,Math.round(8.5*Math.min(zoom,1.2))),fontWeight:700,letterSpacing:".4px",textTransform:"uppercase",color:s.text}}>{cub.role}</div>}
                       {!isReserved&&cubDevices.length>0&&<div style={{marginTop:2,fontSize:9,fontWeight:600,color:"var(--ink-3)",background:"var(--surface)",border:"1px solid var(--line)",borderRadius:999,padding:"1px 6px"}}>🖥️ {cubDevices.length}</div>}
+                      {isReserved&&isSel&&<div onMouseDown={e=>startResize(e,cub)} title="Drag to resize"
+                        style={{position:"absolute",bottom:-2,right:-2,width:14,height:14,cursor:"nwse-resize",
+                          background:"var(--brand)",border:"2px solid #fff",borderRadius:3,zIndex:5}}/>}
                     </div>
                   );
                 }))}
