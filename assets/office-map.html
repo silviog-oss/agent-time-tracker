@@ -378,10 +378,26 @@ function App(){
   const customRoles=state.customRoles||[];
   const roleOptions=[...BASE_ROLES,...customRoles];
   const roleColors=state.roleColors||{};
+  const [dark,setDark]=useState(()=>document.documentElement.classList.contains("dark"));
+  useEffect(()=>{
+    function onStorage(e){ if(e.key==="vulcan_theme") setDark(localStorage.getItem("vulcan_theme")==="dark"); }
+    window.addEventListener("storage",onStorage);
+    return ()=>window.removeEventListener("storage",onStorage);
+  },[]);
   function styleFor(role){
     const base=roleStyle[role]||roleStyle[""];
-    const c=roleColors[role];
-    if(!c) return base;
+    const c=roleColors[role]||base.dot;
+    if(dark){
+      // Dark mode: mix toward the dark surface instead of white, and keep
+      // text light enough to actually read against it.
+      return {
+        dot:c,
+        bg:`color-mix(in srgb, ${c} 22%, #14161A)`,
+        text:`color-mix(in srgb, ${c} 55%, white)`,
+        border:`color-mix(in srgb, ${c} 40%, #14161A)`,
+      };
+    }
+    if(!roleColors[role]) return base;
     return {
       dot:c,
       bg:`color-mix(in srgb, ${c} 12%, white)`,
@@ -518,14 +534,6 @@ function App(){
     }
     pushState({rows:nr,cols:nc,cubicles:next});
     showToast(`${nr}×${nc}`);
-  }
-  // One-click bulk growth: adds room at the far bottom/right without moving
-  // anyone, for when the floor is running out of space.
-  function growRoom(){
-    const nr=Math.max(ROWS,40), nc=Math.max(COLS,40);
-    if(nr===ROWS&&nc===COLS){showToast("Already at least 40×40");return;}
-    pushState({rows:nr,cols:nc});
-    showToast(`Grew room to ${nr}×${nc}`);
   }
 
   function saveDevices(){pushState({cubicles:cubicles.map(c=>c.id===selected.id?{...c,devices:devicesForm}:c)});setSelected(s=>({...s,devices:devicesForm}));setPanel("view");pushToInventory(selected.name,devicesForm);showToast("Devices saved — inventory updated");}
@@ -833,7 +841,6 @@ function App(){
             <button onClick={()=>{setPendingCell(null);setSelected(null);setPanel("addempty");setAddForm({name:"",role:"",row:"",col:""});}} style={{...ghost()}}>Add empty seat</button>
             <button onClick={()=>{setPendingCell(null);setSelected(null);setPanel("add");setAddForm({name:"",role:"",row:"",col:""});}} style={{...btn("var(--brand)","#fff")}}>Add person</button>
             <button onClick={pullFromInventory} title="Fill each person's devices from the Inventory tab" style={{...ghost()}}>Pull inventory</button>
-            <button onClick={growRoom} title="Add space at the bottom/right without moving anyone" style={{...ghost()}}>Grow room</button>
             <button onClick={saveMap} style={{...btn(hasUnsaved?"var(--ok)":"var(--surface)",hasUnsaved?"#fff":"var(--ink-3)"),border:hasUnsaved?"none":"1px solid var(--line)",boxShadow:hasUnsaved?"var(--sh-1)":"none",minWidth:80}}>{hasUnsaved?"Save":"Saved"}</button>
           </div>
         </div>
