@@ -12,8 +12,8 @@ import {
   query, where, serverTimestamp, Timestamp, onSnapshot
 } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
-import { firebaseConfig, ALLOWED_EMAIL_DOMAIN, SUPER_ADMIN_EMAILS } from "./config.js?v=35";
-import { INVENTORY_SEED, INVENTORY_STATUSES, INVENTORY_MODELS, INVENTORY_CATEGORIES, CATEGORY_MAX } from "./inventory-seed.js?v=35";
+import { firebaseConfig, ALLOWED_EMAIL_DOMAIN, SUPER_ADMIN_EMAILS } from "./config.js?v=37";
+import { INVENTORY_SEED, INVENTORY_STATUSES, INVENTORY_MODELS, INVENTORY_CATEGORIES, CATEGORY_MAX } from "./inventory-seed.js?v=37";
 
 const isSuperAdminEmail = (email) =>
   (SUPER_ADMIN_EMAILS || []).map((e) => e.toLowerCase()).includes((email || "").toLowerCase());
@@ -38,7 +38,42 @@ const C = {
 };
 
 // ---------- App meta ----------
-const APP_VERSION = "v3.9.5";
+const APP_VERSION = "v3.9.7";
+
+// ---------- Night mode (personal preference, stored per-browser) ----------
+const THEME_KEY = "vulcan_theme";
+function applyTheme(theme) {
+  document.documentElement.classList.toggle("dark", theme === "dark");
+}
+function currentTheme() { return localStorage.getItem(THEME_KEY) === "dark" ? "dark" : "light"; }
+function toggleTheme() {
+  const next = currentTheme() === "dark" ? "light" : "dark";
+  localStorage.setItem(THEME_KEY, next);
+  applyTheme(next);
+  syncThemeToggleUI();
+}
+function syncThemeToggleUI() {
+  const dark = currentTheme() === "dark";
+  const btn = document.getElementById("theme-toggle");
+  if (btn) btn.textContent = dark ? "☀️" : "🌙";
+  const settingsToggle = document.getElementById("settings-theme-toggle");
+  if (settingsToggle) settingsToggle.checked = dark;
+}
+applyTheme(currentTheme()); // apply immediately, before first paint, to avoid a flash
+
+// ---------- Title color (personal preference, stored per-browser) ----------
+const TITLE_COLOR_KEY = "vulcan_title_color";
+function currentTitleColor() { return localStorage.getItem(TITLE_COLOR_KEY) || ""; }
+function applyTitleColor(color) {
+  if (color) document.documentElement.style.setProperty("--title-color", color);
+  else document.documentElement.style.removeProperty("--title-color");
+}
+function setTitleColor(color) {
+  if (color) localStorage.setItem(TITLE_COLOR_KEY, color);
+  else localStorage.removeItem(TITLE_COLOR_KEY);
+  applyTitleColor(color);
+}
+applyTitleColor(currentTitleColor());
 
 // ---------- Global state ----------
 let ME = null;              // { uid, name, email, photo, role }
@@ -156,6 +191,8 @@ $("google-signin-btn").addEventListener("click", async () => {
   }
 });
 $("signout-btn").addEventListener("click", () => signOut(auth));
+$("theme-toggle") && $("theme-toggle").addEventListener("click", toggleTheme);
+syncThemeToggleUI();
 
 onAuthStateChanged(auth, async (user) => {
   clearView();
@@ -703,7 +740,7 @@ function render() {
 function viewMap(highlight) {
   const h = highlight ? "&highlight=" + encodeURIComponent(highlight) : "";
   pendingHighlight = null;
-  viewEl.innerHTML = `<div class="map-wrap"><iframe class="map-frame" src="assets/office-map.html?v=35${h}" title="Office Map"></iframe></div>`;
+  viewEl.innerHTML = `<div class="map-wrap"><iframe class="map-frame" src="assets/office-map.html?v=37${h}" title="Office Map"></iframe></div>`;
 }
 
 // IT Service board + Inventory placeholder are defined lower in the file.
@@ -1928,29 +1965,66 @@ async function viewSettings() {
   viewEl.innerHTML = skeleton();
   const users = (await getDocsArr(C.users)).sort((a, b) => a.name.localeCompare(b.name));
   const canDelete = can("deleteUsers");
+  const dark = currentTheme() === "dark";
   viewEl.innerHTML = `
-    <div class="page-head"><div class="section-title">People & roles</div></div>
-    <p class="greeting-sub">Set each person's role. ${canDelete ? "Deleting a user removes their profile and all of their records." : ""}</p>
-    <div class="card table-wrap">
-      <table><thead><tr><th>Person</th><th>Email</th><th>Role</th>${canDelete ? "<th></th>" : ""}</tr></thead><tbody>
-      ${users.map((u) => {
-        const current = isSuperAdminEmail(u.email) ? "super_admin" : (u.role || "agent");
-        const locked = isSuperAdminEmail(u.email) || u.uid === ME.uid;
-        return `<tr>
-        <td><div class="cell-agent">
-          <img class="avatar" src="${esc(u.profile_picture || fallbackAvatar(u.name))}" onerror="this.src='${fallbackAvatar(u.name)}'" alt="" />
-          <span class="nm">${esc(u.name)}</span></div></td>
-        <td>${esc(u.email)}</td>
-        <td>${locked
-          ? `<span class="badge out">${ROLE_LABELS[current] || current}${u.uid === ME.uid ? " · you" : ""}</span>`
-          : `<select class="role-select" data-uid="${u.uid}">
-              ${ROLE_OPTIONS.map((r) => `<option value="${r}" ${current === r ? "selected" : ""}>${ROLE_LABELS[r]}</option>`).join("")}
-            </select>`}</td>
-        ${canDelete ? `<td>${locked ? "" : `<button class="btn btn-danger btn-sm" data-del-uid="${u.uid}" data-name="${esc(u.name)}">Delete</button>`}</td>` : ""}
-      </tr>`;
-      }).join("")}
-      </tbody></table>
+    <div class="page-head"><div class="section-title">Settings</div></div>
+
+    <div class="card card-pad settings-section">
+      <div class="settings-section-title">Appearance</div>
+      <div class="settings-row">
+        <div>
+          <div class="settings-row-label">Night mode</div>
+          <div class="settings-row-hint">Switches Vulcan to a dark theme on this browser. Everyone sets their own — it doesn't affect anyone else.</div>
+        </div>
+        <label class="switch">
+          <input type="checkbox" id="settings-theme-toggle" ${dark ? "checked" : ""} />
+          <span class="switch-track"><span class="switch-thumb"></span></span>
+        </label>
+      </div>
+      <div class="settings-row" style="margin-top:18px;padding-top:18px;border-top:1px solid var(--border)">
+        <div>
+          <div class="settings-row-label">Page title color</div>
+          <div class="settings-row-hint">Color of the heading at the top of every page (e.g. "Dashboard", "Office Map"). Personal — only changes it for you.</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <input type="color" id="settings-title-color" value="${currentTitleColor() || "#16181d"}" class="color-swatch" />
+          <button class="btn btn-outline btn-sm" id="settings-title-reset">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card card-pad settings-section">
+      <div class="settings-section-title">People &amp; roles</div>
+      <p class="greeting-sub" style="margin-bottom:14px">Set each person's role.${canDelete ? " Only a super admin can delete a user — deleting removes their profile and all of their records." : ""}</p>
+      <div class="table-wrap">
+        <table><thead><tr><th>Person</th><th>Email</th><th>Role</th>${canDelete ? "<th></th>" : ""}</tr></thead><tbody>
+        ${users.map((u) => {
+          const current = isSuperAdminEmail(u.email) ? "super_admin" : (u.role || "agent");
+          const locked = isSuperAdminEmail(u.email) || u.uid === ME.uid;
+          return `<tr>
+          <td><div class="cell-agent">
+            <img class="avatar" src="${esc(u.profile_picture || fallbackAvatar(u.name))}" onerror="this.src='${fallbackAvatar(u.name)}'" alt="" />
+            <span class="nm">${esc(u.name)}</span></div></td>
+          <td>${esc(u.email)}</td>
+          <td>${locked
+            ? `<span class="badge out">${ROLE_LABELS[current] || current}${u.uid === ME.uid ? " · you" : ""}</span>`
+            : `<select class="role-select" data-uid="${u.uid}">
+                ${ROLE_OPTIONS.map((r) => `<option value="${r}" ${current === r ? "selected" : ""}>${ROLE_LABELS[r]}</option>`).join("")}
+              </select>`}</td>
+          ${canDelete ? `<td>${locked ? "" : `<button class="btn btn-danger btn-sm" data-del-uid="${u.uid}" data-name="${esc(u.name)}">Delete</button>`}</td>` : ""}
+        </tr>`;
+        }).join("")}
+        </tbody></table>
+      </div>
     </div>`;
+  $("settings-theme-toggle") && $("settings-theme-toggle").addEventListener("change", toggleTheme);
+  $("settings-title-color") && $("settings-title-color").addEventListener("input", (e) => setTitleColor(e.target.value));
+  $("settings-title-reset") && $("settings-title-reset").addEventListener("click", () => {
+    setTitleColor("");
+    const inp = $("settings-title-color");
+    if (inp) inp.value = "#16181d";
+    toast("Title color reset");
+  });
   viewEl.querySelectorAll("select.role-select").forEach((sel) =>
     sel.addEventListener("change", guard(async () => {
       await updateDoc(doc(C.users, sel.dataset.uid), { role: sel.value });

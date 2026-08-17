@@ -727,7 +727,7 @@ function App(){
             <div className="eyebrow" style={{marginBottom:10}}>Back of room</div>
             <div style={{background:"var(--floor)",borderRadius:"var(--r)",padding:16,width:"100%",minWidth:280,
               backgroundImage:"linear-gradient(var(--floor-line) 1px,transparent 1px),linear-gradient(90deg,var(--floor-line) 1px,transparent 1px)",
-              backgroundSize:`${Math.round(85*zoom)}px ${Math.round(69*zoom)}px`,backgroundPosition:"15px 15px"}}>
+              backgroundSize:"85px 69px",backgroundPosition:"15px 15px"}}>
               <div style={{display:"grid",
                 gridTemplateColumns:zoom===1?`repeat(${COLS}, minmax(56px, 1fr))`:`repeat(${COLS}, ${Math.round(56*zoom)}px)`,
                 gridTemplateRows:`repeat(${ROWS}, ${Math.round(66*zoom)}px)`,
