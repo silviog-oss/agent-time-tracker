@@ -201,7 +201,7 @@ const seed=[
   {id:39,name:"Adrian N",role:"",row:8,col:7},
 ];
 
-const defaultState={cubicles:seed.map(c=>({...c,devices:[],notes:""})),wfh:[],rows:8,cols:11,customRoles:[]};
+const defaultState={cubicles:seed.map(c=>({...c,devices:[],notes:""})),wfh:[],rows:8,cols:11,customRoles:[],roleColors:{}};
 
 const btn=(bg,text,extra={})=>({background:bg,color:text,border:"none",borderRadius:"var(--r-sm)",padding:"8px 14px",fontSize:12.5,fontWeight:600,cursor:"pointer",boxShadow:"var(--sh-1)",lineHeight:1,letterSpacing:"-.1px",...extra});
 const ghost=(extra={})=>({background:"var(--surface)",color:"var(--ink-2)",border:"1px solid var(--line)",borderRadius:"var(--r-sm)",padding:"8px 12px",fontSize:12.5,fontWeight:600,cursor:"pointer",boxShadow:"none",lineHeight:1,...extra});
@@ -255,6 +255,8 @@ function App(){
   const [zoom,setZoom]=useState(1);
   const [newRolePrompt,setNewRolePrompt]=useState(null);
   const [newRoleName,setNewRoleName]=useState("");
+  const [roleEditor,setRoleEditor]=useState(null);
+  const [pendingRoleColor,setPendingRoleColor]=useState("#FF6A00");
   const dragItem=useRef(null);
   const [inventory,setInventory]=useState([]);
 
@@ -314,6 +316,18 @@ function App(){
   const {cubicles,wfh,rows:ROWS,cols:COLS}=state;
   const customRoles=state.customRoles||[];
   const roleOptions=[...BASE_ROLES,...customRoles];
+  const roleColors=state.roleColors||{};
+  function styleFor(role){
+    const base=roleStyle[role]||roleStyle[""];
+    const c=roleColors[role];
+    if(!c) return base;
+    return {
+      dot:c,
+      bg:`color-mix(in srgb, ${c} 12%, white)`,
+      text:`color-mix(in srgb, ${c} 70%, black)`,
+      border:`color-mix(in srgb, ${c} 35%, white)`,
+    };
+  }
   const canUndo=histPtr>0,canRedo=histPtr<history.length-1;
 
   const pushState=useCallback((patch)=>{
@@ -376,6 +390,35 @@ function App(){
     if(newRolePrompt==="wfh") setWfhForm(f=>({...f,role:name}));
     setNewRolePrompt(null);
     showToast(dup?`Set role to ${name}`:`Added new role: ${name}`);
+  }
+
+  function openRoleEditor(role){
+    setPendingRoleColor(styleFor(role).dot.startsWith("#")?styleFor(role).dot:"#FF6A00");
+    setRoleEditor(role);
+  }
+  function saveRoleColor(){
+    if(!roleEditor)return;
+    pushState({roleColors:{...roleColors,[roleEditor]:pendingRoleColor}});
+    showToast(`Color updated for ${roleEditor}`);
+    setRoleEditor(null);
+  }
+  function resetRoleColor(){
+    if(!roleEditor)return;
+    const next={...roleColors};delete next[roleEditor];
+    pushState({roleColors:next});
+    showToast(`Reset ${roleEditor} to default color`);
+    setRoleEditor(null);
+  }
+  function deleteCustomRole(role){
+    const nextColors={...roleColors};delete nextColors[role];
+    pushState({
+      customRoles:customRoles.filter(r=>r!==role),
+      roleColors:nextColors,
+      cubicles:cubicles.map(c=>c.role===role?{...c,role:""}:c),
+      wfh:wfh.map(w=>w.role===role?{...w,role:""}:w),
+    });
+    showToast(`Deleted role: ${role} — people using it are now unassigned`);
+    setRoleEditor(null);
   }
 
   function resizeGrid(dr,dc){
@@ -474,8 +517,8 @@ function App(){
     setDragging(null);setDragOver(null);dragItem.current=null;showToast("Seat updated");
   }
 
-  const rs=selected?(roleStyle[selected.role]||roleStyle[""]):null;
-  const wrs=wfhSelected?(roleStyle[wfhSelected.role]||roleStyle[""]):null;
+  const rs=selected?styleFor(selected.role):null;
+  const wrs=wfhSelected?styleFor(wfhSelected.role):null;
 
   const fmtDate=iso=>{if(!iso)return null;const d=new Date(iso);return d.toLocaleDateString()+' '+d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});};
 
@@ -583,6 +626,28 @@ function App(){
           </div>
         )}
 
+        {roleEditor&&(
+          <div style={{position:"fixed",inset:0,background:"rgba(11,15,22,0.42)",backdropFilter:"blur(2px)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:9998}}>
+            <div className="modal-in" style={{background:"var(--surface)",borderRadius:"var(--r-lg)",padding:24,width:320,boxShadow:"var(--sh-4)"}}>
+              <div style={{fontSize:15.5,fontWeight:700,marginBottom:4}}>Customize "{roleEditor}"</div>
+              <div style={{fontSize:12.5,color:"var(--ink-2)",marginBottom:14}}>Changes the color everywhere this role appears on the map.</div>
+              <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16}}>
+                <input type="color" value={pendingRoleColor} onChange={e=>setPendingRoleColor(e.target.value)}
+                  style={{width:44,height:36,border:"1px solid var(--line-2)",borderRadius:8,padding:2,cursor:"pointer",background:"var(--surface)"}}/>
+                <span style={{fontSize:12,color:"var(--ink-2)",fontFamily:"var(--mono)"}}>{pendingRoleColor}</span>
+              </div>
+              <div style={{display:"flex",gap:8,marginBottom:8}}>
+                <button onClick={()=>setRoleEditor(null)} style={{...ghost(),flex:1,padding:"9px 0"}}>Cancel</button>
+                <button onClick={saveRoleColor} style={{...btn("var(--brand)","#fff"),flex:1,padding:"9px 0"}}>Save color</button>
+              </div>
+              <button onClick={resetRoleColor} style={{...ghost(),width:"100%",padding:"8px 0",fontSize:12,marginBottom:BASE_ROLES.includes(roleEditor)?0:8}}>Reset to default color</button>
+              {!BASE_ROLES.includes(roleEditor)&&(
+                <button onClick={()=>deleteCustomRole(roleEditor)} style={{...btn("var(--surface)","var(--danger)"),border:"1px solid #F6C9CB",boxShadow:"none",width:"100%",padding:"8px 0",fontSize:12,marginTop:8}}>Delete this role</button>
+              )}
+            </div>
+          </div>
+        )}
+
         {showWFH&&(
           <div style={{position:"fixed",inset:0,background:"rgba(11,15,22,0.45)",backdropFilter:"blur(2px)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:9997}}>
             <div className="modal-in" style={{background:"var(--surface)",borderRadius:"var(--r-lg)",width:540,maxHeight:"85vh",display:"flex",flexDirection:"column",boxShadow:"var(--sh-4)",overflow:"hidden"}}>
@@ -603,7 +668,7 @@ function App(){
                     <button onClick={addToWFH} style={{...btn("var(--ink)","#fff"),width:"100%",padding:"7px 0",fontSize:12}}>Add</button>
                   </div>
                   {wfh.length===0?<div style={{fontSize:12,color:"var(--ink-3)",textAlign:"center",padding:"20px 0"}}>No WFH agents</div>
-                    :wfh.map(w=>{const ws=roleStyle[w.role]||roleStyle[""];const im=whlIds.has(w.id);const on=wfhSelected?.id===w.id;
+                    :wfh.map(w=>{const ws=styleFor(w.role);const im=whlIds.has(w.id);const on=wfhSelected?.id===w.id;
                       return(<div key={w.id} onClick={()=>{setWfhSelected(w);setWfhPanel("view");setWfhDevicesForm(withStandardSlots((w.devices||[]).map(d=>({...d}))));setWfhExpandedDevices({});}}
                         style={{padding:"9px 11px",borderRadius:"var(--r-sm)",marginBottom:6,cursor:"pointer",background:"var(--surface)",
                           border:`1px solid ${on?"var(--brand)":im?"var(--warn)":"var(--line)"}`,
@@ -708,13 +773,15 @@ function App(){
             </div>
           </div>
           <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
-            {Object.entries(roleStyle).filter(([k])=>k!=="").map(([role,s])=>(
-              <span key={role} style={{display:"inline-flex",alignItems:"center",gap:5,background:s.bg,color:s.text,border:`1px solid ${s.border}`,borderRadius:999,padding:"3px 9px 3px 7px",fontSize:11,fontWeight:600}}>
+            {BASE_ROLES.map(role=>{const s=styleFor(role);return(
+              <span key={role} onClick={()=>openRoleEditor(role)} title="Click to customize"
+                style={{display:"inline-flex",alignItems:"center",gap:5,background:s.bg,color:s.text,border:`1px solid ${s.border}`,borderRadius:999,padding:"3px 9px 3px 7px",fontSize:11,fontWeight:600,cursor:"pointer"}}>
                 <span style={{width:7,height:7,borderRadius:999,background:s.dot}}/>{role}
               </span>
-            ))}
-            {customRoles.map(role=>{const s=roleStyle[""];return(
-              <span key={role} style={{display:"inline-flex",alignItems:"center",gap:5,background:s.bg,color:s.text,border:`1px solid ${s.border}`,borderRadius:999,padding:"3px 9px 3px 7px",fontSize:11,fontWeight:600}}>
+            );})}
+            {customRoles.map(role=>{const s=styleFor(role);return(
+              <span key={role} onClick={()=>openRoleEditor(role)} title="Click to customize"
+                style={{display:"inline-flex",alignItems:"center",gap:5,background:s.bg,color:s.text,border:`1px solid ${s.border}`,borderRadius:999,padding:"3px 9px 3px 7px",fontSize:11,fontWeight:600,cursor:"pointer"}}>
                 <span style={{width:7,height:7,borderRadius:999,background:s.dot}}/>{role}
               </span>
             );})}
@@ -744,7 +811,7 @@ function App(){
                   const isWall=cub?.role==="__wall__";
                   const isReserved=isBlock||isWall;
                   const isEmpty=cub&&!isReserved&&!cub.name;
-                  const s=cub?(isReserved?{dot:"#3A424E"}:(roleStyle[cub.role]||roleStyle[""])):null;
+                  const s=cub?(isReserved?{dot:"#3A424E"}:styleFor(cub.role)):null;
                   const cubDevices=cub?.devices||[];
                   const isPending=pendingCell&&pendingCell.row===row&&pendingCell.col===col;
                   if(!cub)return(<div key={key} className="desk-empty" onClick={()=>openCellChooser(row,col)} onDragOver={e=>handleDragOver(e,row,col)} onDrop={e=>handleDrop(e,row,col)}
