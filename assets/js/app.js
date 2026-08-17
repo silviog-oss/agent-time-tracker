@@ -12,8 +12,8 @@ import {
   query, where, serverTimestamp, Timestamp, onSnapshot
 } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
-import { firebaseConfig, ALLOWED_EMAIL_DOMAIN, SUPER_ADMIN_EMAILS } from "./config.js?v=32";
-import { INVENTORY_SEED, INVENTORY_STATUSES, INVENTORY_MODELS, INVENTORY_CATEGORIES, CATEGORY_MAX } from "./inventory-seed.js?v=32";
+import { firebaseConfig, ALLOWED_EMAIL_DOMAIN, SUPER_ADMIN_EMAILS } from "./config.js?v=35";
+import { INVENTORY_SEED, INVENTORY_STATUSES, INVENTORY_MODELS, INVENTORY_CATEGORIES, CATEGORY_MAX } from "./inventory-seed.js?v=35";
 
 const isSuperAdminEmail = (email) =>
   (SUPER_ADMIN_EMAILS || []).map((e) => e.toLowerCase()).includes((email || "").toLowerCase());
@@ -38,7 +38,7 @@ const C = {
 };
 
 // ---------- App meta ----------
-const APP_VERSION = "v3.9.2";
+const APP_VERSION = "v3.9.5";
 
 // ---------- Global state ----------
 let ME = null;              // { uid, name, email, photo, role }
@@ -703,7 +703,7 @@ function render() {
 function viewMap(highlight) {
   const h = highlight ? "&highlight=" + encodeURIComponent(highlight) : "";
   pendingHighlight = null;
-  viewEl.innerHTML = `<div class="map-wrap"><iframe class="map-frame" src="assets/office-map.html?v=32${h}" title="Office Map"></iframe></div>`;
+  viewEl.innerHTML = `<div class="map-wrap"><iframe class="map-frame" src="assets/office-map.html?v=35${h}" title="Office Map"></iframe></div>`;
 }
 
 // IT Service board + Inventory placeholder are defined lower in the file.
@@ -803,13 +803,12 @@ async function viewShopping() {
   const shop = (canViewAll ? shopAll : shopAll.filter((s) => s.created_by === ME.uid))
     .sort((a, b) => (a.status === "done") - (b.status === "done") || (ms(b.created_at) || 0) - (ms(a.created_at) || 0));
 
-  const fmtMoney = (n) => "$" + (Number(n) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  const pendingTotal = shop.filter((s) => s.status !== "done").reduce((t, s) => t + (Number(s.amount) || 0), 0);
+  const pendingQty = shop.filter((s) => s.status !== "done").reduce((t, s) => t + (Number(s.quantity) || 1), 0);
 
   const row = (s) => `
     <div class="it-shop-row ${s.status === "done" ? "done" : ""}" data-id="${s.id}">
       <div class="it-shop-main">
-        <div class="nm">${esc(s.item_name)} ${s.amount ? `<span class="shop-amount">${fmtMoney(s.amount)}</span>` : ""} ${s.status === "done" ? '<span class="badge working">bought</span>' : ""}</div>
+        <div class="nm">${esc(s.item_name)} ${(s.quantity && s.quantity > 1) ? `<span class="shop-amount">× ${s.quantity}</span>` : ""} ${s.status === "done" ? '<span class="badge working">bought</span>' : ""}</div>
         <div class="em">${esc(s.reason || "")}${s.amazon_link ? ` · <a href="${esc(s.amazon_link)}" target="_blank" rel="noopener">link</a>` : ""} · from ${esc(s.created_by_name || "")}</div>
       </div>
       <div class="it-actions" style="margin:0">
@@ -823,7 +822,7 @@ async function viewShopping() {
       <div class="section-title" style="margin:0">${canViewAll ? "Shopping list" : "My shopping requests"}</div>
       ${can("shoppingCreate") ? `<button class="btn btn-primary btn-sm" id="new-shop">Request item</button>` : ""}
     </div>
-    ${pendingTotal > 0 ? `<div class="tiles" style="margin-bottom:14px"><div class="tile"><div class="t-label">Pending total</div><div class="t-value">${fmtMoney(pendingTotal)}</div></div></div>` : ""}
+    ${pendingQty > 0 ? `<div class="tiles" style="margin-bottom:14px"><div class="tile"><div class="t-label">Items pending</div><div class="t-value">${pendingQty}</div></div></div>` : ""}
     <div class="card card-pad">
       ${shop.length ? `<div class="it-list">${shop.map(row).join("")}</div>`
         : `<div class="empty"><strong>Nothing here yet</strong>${can("shoppingCreate") ? "Request an item with the button above." : "No shopping items."}</div>`}
@@ -937,10 +936,12 @@ function openShoppingModal() {
     <input id="shop-name" class="modal-input" placeholder="e.g. Logitech M185 mouse" />
     <label class="field-label" style="margin-top:12px">Amazon link</label>
     <input id="shop-link" class="modal-input" placeholder="https://amazon.com.mx/..." />
-    <label class="field-label" style="margin-top:12px">Amount</label>
-    <div style="position:relative">
-      <span style="position:absolute;left:11px;top:50%;transform:translateY(-50%);color:var(--muted);font-size:14px;">$</span>
-      <input id="shop-amount" class="modal-input" type="number" min="0" step="0.01" placeholder="0.00" style="padding-left:24px" />
+    <label class="field-label" style="margin-top:12px">How many?</label>
+    <div class="duration-row">
+      <button class="dur-step" data-q="-1" type="button">–</button>
+      <input id="shop-qty" class="dur-input num" type="number" min="1" step="1" value="1" />
+      <span class="dur-unit">unit(s)</span>
+      <button class="dur-step" data-q="1" type="button">+</button>
     </div>
     <label class="field-label" style="margin-top:12px">Why is it needed?</label>
     <textarea id="shop-reason" class="modal-textarea" placeholder="Reason"></textarea>
@@ -950,14 +951,19 @@ function openShoppingModal() {
     </div>
   `);
   document.getElementById("shop-cancel").addEventListener("click", closeModal);
+  const qtyInput = document.getElementById("shop-qty");
+  document.querySelectorAll(".dur-step").forEach((b) =>
+    b.addEventListener("click", () => {
+      qtyInput.value = Math.max(1, (parseInt(qtyInput.value, 10) || 1) + parseInt(b.dataset.q, 10));
+    }));
   document.getElementById("shop-send").addEventListener("click", guard(async () => {
     const item_name = document.getElementById("shop-name").value.trim();
     const amazon_link = document.getElementById("shop-link").value.trim();
-    const amount = parseFloat(document.getElementById("shop-amount").value) || 0;
+    const quantity = Math.max(1, parseInt(qtyInput.value, 10) || 1);
     const reason = document.getElementById("shop-reason").value.trim();
     if (!item_name) { toast("Item name is required.", true); return; }
     await addDoc(C.shopping, {
-      item_name, amazon_link, amount, reason, status: "open",
+      item_name, amazon_link, quantity, reason, status: "open",
       created_by: ME.uid, created_by_name: ME.name,
       date: todayKey(), created_at: Timestamp.now(),
     });
