@@ -252,6 +252,7 @@ function App(){
   const [wfhExpandedDevices,setWfhExpandedDevices]=useState({});
   const [returnCoords,setReturnCoords]=useState({});
   const [pendingCell,setPendingCell]=useState(null);
+  const [zoom,setZoom]=useState(1);
   const [newRolePrompt,setNewRolePrompt]=useState(null);
   const [newRoleName,setNewRoleName]=useState("");
   const dragItem=useRef(null);
@@ -524,7 +525,7 @@ function App(){
           </div>
         ))}
       </div>
-      <button onClick={()=>setForm(f=>[...f,{...emptyDevice(),_id:Date.now()}])} style={{...ghost(),width:"100%",marginBottom:8,padding:"9px 0",fontSize:12.5}}>+ Add device</button>
+      <button onClick={()=>setForm(f=>[{...emptyDevice(),_id:Date.now()},...f])} style={{...ghost(),width:"100%",marginBottom:8,padding:"9px 0",fontSize:12.5}}>+ Add device</button>
     </>
   );
 
@@ -680,6 +681,13 @@ function App(){
                 <button onClick={inc} style={{background:"var(--surface-2)",color:"var(--ink-2)",border:"1px solid var(--line)",borderRadius:6,width:22,height:22,fontSize:15,cursor:"pointer",lineHeight:1,display:"flex",alignItems:"center",justifyContent:"center"}}>+</button>
               </div>
             ))}
+            <div style={{display:"flex",alignItems:"center",gap:5,background:"var(--surface)",border:"1px solid var(--line)",borderRadius:"var(--r-sm)",padding:"4px 8px",boxShadow:"var(--sh-1)"}}>
+              <span style={{fontSize:11,color:"var(--ink-3)",fontWeight:600}}>Zoom</span>
+              <button onClick={()=>setZoom(z=>Math.max(0.5,Math.round((z-0.1)*10)/10))} style={{background:"var(--surface-2)",color:"var(--ink-2)",border:"1px solid var(--line)",borderRadius:6,width:22,height:22,fontSize:15,cursor:"pointer",lineHeight:1,display:"flex",alignItems:"center",justifyContent:"center"}}>−</button>
+              <span style={{fontSize:12,fontWeight:700,minWidth:38,textAlign:"center",fontFamily:"var(--mono)"}}>{Math.round(zoom*100)}%</span>
+              <button onClick={()=>setZoom(z=>Math.min(2,Math.round((z+0.1)*10)/10))} style={{background:"var(--surface-2)",color:"var(--ink-2)",border:"1px solid var(--line)",borderRadius:6,width:22,height:22,fontSize:15,cursor:"pointer",lineHeight:1,display:"flex",alignItems:"center",justifyContent:"center"}}>+</button>
+              {zoom!==1&&<button onClick={()=>setZoom(1)} title="Reset zoom" style={{background:"none",border:"none",color:"var(--brand-ink)",fontSize:11,fontWeight:700,cursor:"pointer",padding:"0 2px"}}>Reset</button>}
+            </div>
           </div>
           <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
             {Object.entries(roleStyle).filter(([k])=>k!=="").map(([role,s])=>(
@@ -696,9 +704,11 @@ function App(){
         </div>
 
         <div style={{display:"flex",gap:16,alignItems:"flex-start",flexWrap:"wrap"}}>
-          <div style={{background:"var(--surface)",borderRadius:"var(--r-lg)",border:"1px solid var(--line)",boxShadow:"var(--sh-1)",padding:16,flex:"1 1 620px",minWidth:0,overflowX:"auto"}}>
+          <div style={{background:"var(--surface)",borderRadius:"var(--r-lg)",border:"1px solid var(--line)",boxShadow:"var(--sh-1)",padding:16,flex:"1 1 620px",minWidth:0,overflow:"auto"}}
+            onWheel={e=>{if(e.ctrlKey){e.preventDefault();setZoom(z=>Math.min(2,Math.max(0.5,Math.round((z+(e.deltaY<0?0.1:-0.1))*10)/10)));}}}>
             <div className="eyebrow" style={{marginBottom:10}}>Back of room</div>
             <div style={{background:"var(--floor)",borderRadius:"var(--r)",padding:16,width:"100%",minWidth:280,
+              transform:`scale(${zoom})`,transformOrigin:"top center",transition:"transform .12s ease",
               backgroundImage:"linear-gradient(var(--floor-line) 1px,transparent 1px),linear-gradient(90deg,var(--floor-line) 1px,transparent 1px)",
               backgroundSize:"85px 69px",backgroundPosition:"15px 15px"}}>
               <div style={{display:"grid",gridTemplateColumns:`repeat(${COLS}, minmax(56px, 1fr))`,gridTemplateRows:`repeat(${ROWS}, 66px)`,gap:3,width:"100%"}}>
