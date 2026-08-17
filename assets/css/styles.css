@@ -439,6 +439,7 @@ tbody tr.clickable:hover { background: #FAFAFB; }
 .it-shop-row:last-child { border-bottom: none; }
 .it-shop-row.done { opacity: .6; }
 .it-shop-main { min-width: 0; }
+.shop-amount { color: var(--muted); font-weight: 600; font-variant-numeric: tabular-nums; }
 
 /* ---------- Inventory placeholder ---------- */
 .inv-soon { text-align: left; }

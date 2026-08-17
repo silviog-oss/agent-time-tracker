@@ -12,8 +12,8 @@ import {
   query, where, serverTimestamp, Timestamp, onSnapshot
 } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
-import { firebaseConfig, ALLOWED_EMAIL_DOMAIN, SUPER_ADMIN_EMAILS } from "./config.js?v=30";
-import { INVENTORY_SEED, INVENTORY_STATUSES, INVENTORY_MODELS, INVENTORY_CATEGORIES, CATEGORY_MAX } from "./inventory-seed.js?v=30";
+import { firebaseConfig, ALLOWED_EMAIL_DOMAIN, SUPER_ADMIN_EMAILS } from "./config.js?v=32";
+import { INVENTORY_SEED, INVENTORY_STATUSES, INVENTORY_MODELS, INVENTORY_CATEGORIES, CATEGORY_MAX } from "./inventory-seed.js?v=32";
 
 const isSuperAdminEmail = (email) =>
   (SUPER_ADMIN_EMAILS || []).map((e) => e.toLowerCase()).includes((email || "").toLowerCase());
@@ -38,7 +38,7 @@ const C = {
 };
 
 // ---------- App meta ----------
-const APP_VERSION = "v3.9.0";
+const APP_VERSION = "v3.9.2";
 
 // ---------- Global state ----------
 let ME = null;              // { uid, name, email, photo, role }
@@ -186,7 +186,7 @@ onAuthStateChanged(auth, async (user) => {
     renderShell();
     renderVersionFooters();
     startBellWatch();
-    go("dashboard");
+    go(defaultRouteFor(effRole()));
   } catch (err) {
     console.error("Vulcan failed to load:", err);
     showLoadError(err);
@@ -290,12 +290,18 @@ function navFor(role) {
   switch (role) {
     case "agent":       return [D, MAP];
     case "it_agent":    return [D, MYTASKS, IT, SHOP, INV, MAP];
-    case "supervisor":  return [D, MYTASKS, IT, SHOP, MAP];
+    case "supervisor":  return [MYTASKS, IT, SHOP, MAP];
     case "it_admin":
-    case "admin":       return [D, AGENTS, TASKS, ACT, REP, IT, SHOP, INV, MAP];
-    case "super_admin": return [D, AGENTS, TASKS, ACT, REP, IT, SHOP, INV, MAP, SET];
+    case "admin":       return [AGENTS, TASKS, ACT, REP, IT, SHOP, INV, MAP];
+    case "super_admin": return [AGENTS, TASKS, ACT, REP, IT, SHOP, INV, MAP, SET];
     default:            return [D, MAP];
   }
+}
+// First nav item for a role — used as the landing page after login (Dashboard
+// isn't in every role's nav anymore, so we can't always default to it).
+function defaultRouteFor(role) {
+  const items = navFor(role);
+  return items.length ? items[0][0] : "dashboard";
 }
 
 function renderShell() {
@@ -315,7 +321,7 @@ function renderShell() {
     if (PREVIEW_ROLE) {
       pe.textContent = `Exit ${ROLE_LABELS[PREVIEW_ROLE] || PREVIEW_ROLE} preview`;
       pe.classList.remove("hidden");
-      pe.onclick = () => { PREVIEW_ROLE = null; renderShell(); go("dashboard"); };
+      pe.onclick = () => { PREVIEW_ROLE = null; renderShell(); go(defaultRouteFor(effRole())); };
     } else {
       pe.classList.add("hidden");
     }
@@ -678,8 +684,8 @@ function render() {
   titleEl.textContent = TITLES[ROUTE] || "Dashboard";
   viewEl.classList.toggle("view--wide", ROUTE === "map");
   if (ROUTE === "map") return viewMap(pendingHighlight);
-  if (ROUTE === "it") return viewITService();
-  if (ROUTE === "shopping") return viewShopping();
+  if (ROUTE === "it") return can("createReq") || can("itStaff") ? viewITService() : go(defaultRouteFor(effRole()));
+  if (ROUTE === "shopping") return can("shoppingCreate") || can("shoppingView") ? viewShopping() : go(defaultRouteFor(effRole()));
   if (ROUTE === "inventory") return viewInventory();
   if (ROUTE === "dashboard") return can("adminDash") ? viewAdminDashboard() : viewAgentDashboard();
   if (ROUTE === "my-tasks") return viewMyTasks();
@@ -697,7 +703,7 @@ function render() {
 function viewMap(highlight) {
   const h = highlight ? "&highlight=" + encodeURIComponent(highlight) : "";
   pendingHighlight = null;
-  viewEl.innerHTML = `<div class="map-wrap"><iframe class="map-frame" src="assets/office-map.html?v=30${h}" title="Office Map"></iframe></div>`;
+  viewEl.innerHTML = `<div class="map-wrap"><iframe class="map-frame" src="assets/office-map.html?v=32${h}" title="Office Map"></iframe></div>`;
 }
 
 // IT Service board + Inventory placeholder are defined lower in the file.
@@ -797,10 +803,13 @@ async function viewShopping() {
   const shop = (canViewAll ? shopAll : shopAll.filter((s) => s.created_by === ME.uid))
     .sort((a, b) => (a.status === "done") - (b.status === "done") || (ms(b.created_at) || 0) - (ms(a.created_at) || 0));
 
+  const fmtMoney = (n) => "$" + (Number(n) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const pendingTotal = shop.filter((s) => s.status !== "done").reduce((t, s) => t + (Number(s.amount) || 0), 0);
+
   const row = (s) => `
     <div class="it-shop-row ${s.status === "done" ? "done" : ""}" data-id="${s.id}">
       <div class="it-shop-main">
-        <div class="nm">${esc(s.item_name)} ${s.status === "done" ? '<span class="badge working">bought</span>' : ""}</div>
+        <div class="nm">${esc(s.item_name)} ${s.amount ? `<span class="shop-amount">${fmtMoney(s.amount)}</span>` : ""} ${s.status === "done" ? '<span class="badge working">bought</span>' : ""}</div>
         <div class="em">${esc(s.reason || "")}${s.amazon_link ? ` · <a href="${esc(s.amazon_link)}" target="_blank" rel="noopener">link</a>` : ""} · from ${esc(s.created_by_name || "")}</div>
       </div>
       <div class="it-actions" style="margin:0">
@@ -814,6 +823,7 @@ async function viewShopping() {
       <div class="section-title" style="margin:0">${canViewAll ? "Shopping list" : "My shopping requests"}</div>
       ${can("shoppingCreate") ? `<button class="btn btn-primary btn-sm" id="new-shop">Request item</button>` : ""}
     </div>
+    ${pendingTotal > 0 ? `<div class="tiles" style="margin-bottom:14px"><div class="tile"><div class="t-label">Pending total</div><div class="t-value">${fmtMoney(pendingTotal)}</div></div></div>` : ""}
     <div class="card card-pad">
       ${shop.length ? `<div class="it-list">${shop.map(row).join("")}</div>`
         : `<div class="empty"><strong>Nothing here yet</strong>${can("shoppingCreate") ? "Request an item with the button above." : "No shopping items."}</div>`}
@@ -927,6 +937,11 @@ function openShoppingModal() {
     <input id="shop-name" class="modal-input" placeholder="e.g. Logitech M185 mouse" />
     <label class="field-label" style="margin-top:12px">Amazon link</label>
     <input id="shop-link" class="modal-input" placeholder="https://amazon.com.mx/..." />
+    <label class="field-label" style="margin-top:12px">Amount</label>
+    <div style="position:relative">
+      <span style="position:absolute;left:11px;top:50%;transform:translateY(-50%);color:var(--muted);font-size:14px;">$</span>
+      <input id="shop-amount" class="modal-input" type="number" min="0" step="0.01" placeholder="0.00" style="padding-left:24px" />
+    </div>
     <label class="field-label" style="margin-top:12px">Why is it needed?</label>
     <textarea id="shop-reason" class="modal-textarea" placeholder="Reason"></textarea>
     <div class="modal-actions">
@@ -938,10 +953,11 @@ function openShoppingModal() {
   document.getElementById("shop-send").addEventListener("click", guard(async () => {
     const item_name = document.getElementById("shop-name").value.trim();
     const amazon_link = document.getElementById("shop-link").value.trim();
+    const amount = parseFloat(document.getElementById("shop-amount").value) || 0;
     const reason = document.getElementById("shop-reason").value.trim();
     if (!item_name) { toast("Item name is required.", true); return; }
     await addDoc(C.shopping, {
-      item_name, amazon_link, reason, status: "open",
+      item_name, amazon_link, amount, reason, status: "open",
       created_by: ME.uid, created_by_name: ME.name,
       date: todayKey(), created_at: Timestamp.now(),
     });
@@ -1230,7 +1246,7 @@ async function viewAgentDashboard() {
     </div>`;
 
   // ----- wire buttons -----
-  $("exit-preview") && $("exit-preview").addEventListener("click", () => { PREVIEW_ROLE = null; renderShell(); go("dashboard"); });
+  $("exit-preview") && $("exit-preview").addEventListener("click", () => { PREVIEW_ROLE = null; renderShell(); go(defaultRouteFor(effRole())); });
   $("btn-startday") && $("btn-startday").addEventListener("click", guard(async () => { await clockIn(); }));
   $("btn-addtask") && $("btn-addtask").addEventListener("click", () => openAddTaskModal());
   $("btn-endtask") && $("btn-endtask").addEventListener("click", guard(endActivity));
