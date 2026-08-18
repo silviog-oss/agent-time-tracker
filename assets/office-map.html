@@ -122,17 +122,22 @@
         }
       } catch (e) { console.warn("history snapshot failed:", e.message); }
       await setDoc(ref, { ...payload, updated_at: Date.now() });
-      // Keep only the most recent 20 snapshots.
+      // Keep only the most recent 6 snapshots.
       try {
-        const old = await getDocs(query(histCol, orderBy("saved_at", "desc"), limit(50)));
+        const old = await getDocs(query(histCol, orderBy("saved_at", "desc"), limit(30)));
         const docs = old.docs;
-        if (docs.length > 20) await Promise.all(docs.slice(20).map((d) => deleteDoc(d.ref)));
+        if (docs.length > 6) await Promise.all(docs.slice(6).map((d) => deleteDoc(d.ref)));
       } catch (e) { console.warn("history trim failed:", e.message); }
       return true;
     },
     async listHistory() {
-      const snap = await getDocs(query(histCol, orderBy("saved_at", "desc"), limit(20)));
+      const snap = await getDocs(query(histCol, orderBy("saved_at", "desc"), limit(6)));
       return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    },
+    async deleteHistoryEntry(id) { await deleteDoc(doc(histCol, id)); },
+    async clearHistory() {
+      const snap = await getDocs(histCol);
+      await Promise.all(snap.docs.map((d) => deleteDoc(d.ref)));
     },
 
     // ---- Inventory: the single source of truth for workstations ----
@@ -472,6 +477,18 @@ function App(){
       .then(()=>{setSavedAt(Date.now());setHasUnsaved(false);showToast("Restored — back to how it was before","success");})
       .catch(()=>showToast("Restored locally, but saving failed — try Save","error"));
   }
+  function deleteHistoryEntry(id){
+    if(!window.ShiftMap||!window.ShiftMap.deleteHistoryEntry) return;
+    window.ShiftMap.deleteHistoryEntry(id)
+      .then(()=>{setHistoryList(l=>l.filter(s=>s.id!==id));showToast("Deleted");})
+      .catch(()=>showToast("Couldn't delete","error"));
+  }
+  function clearAllHistory(){
+    if(!window.ShiftMap||!window.ShiftMap.clearHistory) return;
+    window.ShiftMap.clearHistory()
+      .then(()=>{setHistoryList([]);showToast("History cleared");})
+      .catch(()=>showToast("Couldn't clear history","error"));
+  }
 
   function undo(){if(!canUndo)return;setHistPtr(p=>p-1);setSelected(null);setHasUnsaved(true);showToast("Undone");}
   function redo(){if(!canRedo)return;setHistPtr(p=>p+1);setSelected(null);setHasUnsaved(true);showToast("Redone");}
@@ -802,9 +819,12 @@ function App(){
               <div style={{padding:"16px 20px",borderBottom:"1px solid var(--line)",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                 <div>
                   <div style={{fontSize:16,fontWeight:700}}>Map history</div>
-                  <div style={{fontSize:12,color:"var(--ink-2)"}}>Every save keeps a snapshot of what came before it.</div>
+                  <div style={{fontSize:12,color:"var(--ink-2)"}}>Keeps your last 6 saves.</div>
                 </div>
-                <button onClick={()=>setShowHistory(false)} style={{background:"none",border:"none",fontSize:22,cursor:"pointer",color:"var(--ink-3)",lineHeight:1}}>×</button>
+                <div style={{display:"flex",gap:10,alignItems:"center"}}>
+                  {historyList.length>0&&<button onClick={clearAllHistory} style={{background:"none",border:"none",color:"var(--danger)",fontSize:12,fontWeight:600,cursor:"pointer"}}>Clear all</button>}
+                  <button onClick={()=>setShowHistory(false)} style={{background:"none",border:"none",fontSize:22,cursor:"pointer",color:"var(--ink-3)",lineHeight:1}}>×</button>
+                </div>
               </div>
               <div style={{flex:1,overflowY:"auto",padding:16}}>
                 {historyLoading?<div style={{textAlign:"center",color:"var(--ink-3)",padding:"30px 0",fontSize:13}}>Loading…</div>
@@ -815,7 +835,10 @@ function App(){
                         <div style={{fontSize:13,fontWeight:600}}>{new Date(snap.saved_at).toLocaleString([],{month:"short",day:"numeric",hour:"numeric",minute:"2-digit"})}</div>
                         <div style={{fontSize:11.5,color:"var(--ink-3)"}}>{(snap.state.cubicles||[]).filter(c=>c.name).length} people on the floor · saved before {snap.saved_by_name}'s change</div>
                       </div>
-                      <button onClick={()=>restoreSnapshot(snap)} style={{...btn("var(--brand)","#fff"),padding:"7px 14px",fontSize:12.5}}>Restore</button>
+                      <div style={{display:"flex",gap:6,flexShrink:0}}>
+                        <button onClick={()=>restoreSnapshot(snap)} style={{...btn("var(--brand)","#fff"),padding:"7px 14px",fontSize:12.5}}>Restore</button>
+                        <button onClick={()=>deleteHistoryEntry(snap.id)} title="Delete this snapshot" style={{background:"none",border:"none",color:"var(--danger)",cursor:"pointer",fontSize:15,padding:"0 4px"}}>🗑</button>
+                      </div>
                     </div>
                   ))
                 }
