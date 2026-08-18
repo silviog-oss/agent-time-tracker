@@ -17,3 +17,11 @@ export const ALLOWED_EMAIL_DOMAIN = "";
 // These emails are ALWAYS admins — granted automatically on login.
 // Keep in sync with isSuperAdmin() in firestore.rules.
 export const SUPER_ADMIN_EMAILS = ["silvio.g@incfile.com"];
+
+// Shorthand usernames for the code-based sign-in on mobile/kiosk devices.
+// A code sign-in still requires a real linked password on that account
+// (set once from Settings while signed in normally) — this map just saves
+// typing the full email. Add more entries as people set up their own codes.
+export const USERNAME_MAP = {
+  "silvio": "silvio.g@incfile.com",
+};

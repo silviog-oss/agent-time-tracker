@@ -4,6 +4,7 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
 <title>Vulcan — Office Map</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2024%2024%22%3E%3Crect%20width%3D%2224%22%20height%3D%2224%22%20rx%3D%225%22%20fill%3D%22%2316181D%22/%3E%3Cpath%20d%3D%22M4%208h11a6%206%200%200%200%205%203l2-2v4.2A5.8%205.8%200%200%201%2016.2%2019H13l1.4%203H7.6L9%2019H8a4%204%200%200%201-4-4V8Z%22%20fill%3D%22%23FF6A00%22/%3E%3Crect%20x%3D%227%22%20y%3D%2222%22%20width%3D%2212%22%20height%3D%222%22%20rx%3D%221%22%20fill%3D%22%23FF6A00%22/%3E%3C/svg%3E" />
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
@@ -83,7 +84,7 @@
 </script>
 <script type="module">
   import { initializeApp, getApps } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-  import { getFirestore, doc, setDoc, updateDoc, addDoc, getDocs, collection, query, where, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+  import { getFirestore, doc, getDoc, setDoc, updateDoc, addDoc, getDocs, deleteDoc, collection, query, where, orderBy, limit, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
   import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
   import { firebaseConfig } from "./js/config.js";
   const app = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
@@ -95,6 +96,7 @@
   onAuthStateChanged(auth, (u) => resolveAuth(u));
   // Shared, everyone-can-edit map stored in one Firestore doc.
   const invCol = collection(db, "inventory");
+  const histCol = collection(db, "map_history");
   const norm = (n) => (n || "").trim().toLowerCase();
   window.ShiftMap = {
     authReady,
@@ -102,7 +104,36 @@
       return onSnapshot(ref, (snap) => cb(snap.exists() ? snap.data() : null),
         (err) => console.warn("map sync error:", err.message));
     },
-    async save(payload) { await setDoc(ref, { ...payload, updated_at: Date.now() }); return true; },
+    async save(payload) {
+      // Snapshot the PREVIOUS live state to history before overwriting it,
+      // so there's always a "how it was before this save" checkpoint.
+      const whoName = (auth.currentUser && (auth.currentUser.displayName || auth.currentUser.email)) || "Unknown";
+      try {
+        const prevDoc = await getDoc(ref);
+        if (prevDoc.exists()) {
+          const prev = prevDoc.data();
+          if (prev && prev.state) {
+            await addDoc(histCol, {
+              state: prev.state, nextId: prev.nextId || 100,
+              saved_at: prev.updated_at || Date.now(),
+              saved_by_name: whoName,
+            });
+          }
+        }
+      } catch (e) { console.warn("history snapshot failed:", e.message); }
+      await setDoc(ref, { ...payload, updated_at: Date.now() });
+      // Keep only the most recent 20 snapshots.
+      try {
+        const old = await getDocs(query(histCol, orderBy("saved_at", "desc"), limit(50)));
+        const docs = old.docs;
+        if (docs.length > 20) await Promise.all(docs.slice(20).map((d) => deleteDoc(d.ref)));
+      } catch (e) { console.warn("history trim failed:", e.message); }
+      return true;
+    },
+    async listHistory() {
+      const snap = await getDocs(query(histCol, orderBy("saved_at", "desc"), limit(20)));
+      return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    },
 
     // ---- Inventory: the single source of truth for workstations ----
     subscribeInventory(cb) {
@@ -272,6 +303,9 @@ function App(){
   const [wfhExpandedDevices,setWfhExpandedDevices]=useState({});
   const [returnCoords,setReturnCoords]=useState({});
   const [pendingCell,setPendingCell]=useState(null);
+  const [showHistory,setShowHistory]=useState(false);
+  const [historyList,setHistoryList]=useState([]);
+  const [historyLoading,setHistoryLoading]=useState(false);
   const [zoom,setZoom]=useState(1);
   const [newRolePrompt,setNewRolePrompt]=useState(null);
   const [newRoleName,setNewRoleName]=useState("");
@@ -419,6 +453,24 @@ function App(){
     window.ShiftMap.save({state:history[histPtr],nextId})
       .then(()=>{setSavedAt(Date.now());setHasUnsaved(false);showToast("Saved for everyone","success");})
       .catch(()=>showToast("Save failed","error"));
+  }
+
+  function openHistory(){
+    if(!window.ShiftMap||!window.ShiftMap.listHistory){showToast("Offline — can't load history","error");return;}
+    setHistoryLoading(true);setShowHistory(true);
+    window.ShiftMap.listHistory()
+      .then(list=>setHistoryList(list))
+      .catch(()=>showToast("Couldn't load history","error"))
+      .finally(()=>setHistoryLoading(false));
+  }
+  function restoreSnapshot(snap){
+    pushState({rows:snap.state.rows,cols:snap.state.cols,cubicles:snap.state.cubicles,wfh:snap.state.wfh,customRoles:snap.state.customRoles||[],roleColors:snap.state.roleColors||{}});
+    setNextId(snap.nextId||100);
+    setShowHistory(false);
+    if(!window.ShiftMap){showToast("Restored locally — you're offline, save when back online","error");return;}
+    window.ShiftMap.save({state:snap.state,nextId:snap.nextId||100})
+      .then(()=>{setSavedAt(Date.now());setHasUnsaved(false);showToast("Restored — back to how it was before","success");})
+      .catch(()=>showToast("Restored locally, but saving failed — try Save","error"));
   }
 
   function undo(){if(!canUndo)return;setHistPtr(p=>p-1);setSelected(null);setHasUnsaved(true);showToast("Undone");}
@@ -744,6 +796,34 @@ function App(){
           </div>
         )}
 
+        {showHistory&&(
+          <div style={{position:"fixed",inset:0,background:"rgba(11,15,22,0.45)",backdropFilter:"blur(2px)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:9997}}>
+            <div className="modal-in" style={{background:"var(--surface)",borderRadius:"var(--r-lg)",width:460,maxHeight:"80vh",display:"flex",flexDirection:"column",boxShadow:"var(--sh-4)",overflow:"hidden"}}>
+              <div style={{padding:"16px 20px",borderBottom:"1px solid var(--line)",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                <div>
+                  <div style={{fontSize:16,fontWeight:700}}>Map history</div>
+                  <div style={{fontSize:12,color:"var(--ink-2)"}}>Every save keeps a snapshot of what came before it.</div>
+                </div>
+                <button onClick={()=>setShowHistory(false)} style={{background:"none",border:"none",fontSize:22,cursor:"pointer",color:"var(--ink-3)",lineHeight:1}}>×</button>
+              </div>
+              <div style={{flex:1,overflowY:"auto",padding:16}}>
+                {historyLoading?<div style={{textAlign:"center",color:"var(--ink-3)",padding:"30px 0",fontSize:13}}>Loading…</div>
+                  :historyList.length===0?<div style={{textAlign:"center",color:"var(--ink-3)",padding:"30px 0",fontSize:13}}>No history yet — it builds up as people save changes.</div>
+                  :historyList.map((snap,i)=>(
+                    <div key={snap.id} style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,padding:"11px 4px",borderBottom:i<historyList.length-1?"1px solid var(--line)":"none"}}>
+                      <div>
+                        <div style={{fontSize:13,fontWeight:600}}>{new Date(snap.saved_at).toLocaleString([],{month:"short",day:"numeric",hour:"numeric",minute:"2-digit"})}</div>
+                        <div style={{fontSize:11.5,color:"var(--ink-3)"}}>{(snap.state.cubicles||[]).filter(c=>c.name).length} people on the floor · saved before {snap.saved_by_name}'s change</div>
+                      </div>
+                      <button onClick={()=>restoreSnapshot(snap)} style={{...btn("var(--brand)","#fff"),padding:"7px 14px",fontSize:12.5}}>Restore</button>
+                    </div>
+                  ))
+                }
+              </div>
+            </div>
+          </div>
+        )}
+
         {showWFH&&(
           <div style={{position:"fixed",inset:0,background:"rgba(11,15,22,0.45)",backdropFilter:"blur(2px)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:9997}}>
             <div className="modal-in" style={{background:"var(--surface)",borderRadius:"var(--r-lg)",width:540,maxHeight:"85vh",display:"flex",flexDirection:"column",boxShadow:"var(--sh-4)",overflow:"hidden"}}>
@@ -841,6 +921,7 @@ function App(){
             <button onClick={()=>{setPendingCell(null);setSelected(null);setPanel("addempty");setAddForm({name:"",role:"",row:"",col:""});}} style={{...ghost()}}>Add empty seat</button>
             <button onClick={()=>{setPendingCell(null);setSelected(null);setPanel("add");setAddForm({name:"",role:"",row:"",col:""});}} style={{...btn("var(--brand)","#fff")}}>Add person</button>
             <button onClick={pullFromInventory} title="Fill each person's devices from the Inventory tab" style={{...ghost()}}>Pull inventory</button>
+            <button onClick={openHistory} style={{...ghost()}}>History</button>
             <button onClick={saveMap} style={{...btn(hasUnsaved?"var(--ok)":"var(--surface)",hasUnsaved?"#fff":"var(--ink-3)"),border:hasUnsaved?"none":"1px solid var(--line)",boxShadow:hasUnsaved?"var(--sh-1)":"none",minWidth:80}}>{hasUnsaved?"Save":"Saved"}</button>
           </div>
         </div>

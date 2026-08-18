@@ -134,5 +134,10 @@ service cloud.firestore {
     match /settings/{id} {
       allow read, write: if isSignedIn();
     }
+
+    // ---- Map history snapshots — any signed-in user (matches map access) ----
+    match /map_history/{id} {
+      allow read, create, delete: if isSignedIn();
+    }
   }
 }

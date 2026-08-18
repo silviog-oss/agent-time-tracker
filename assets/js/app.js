@@ -5,15 +5,16 @@
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
 import {
-  getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged
+  getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged,
+  signInWithEmailAndPassword, EmailAuthProvider, linkWithCredential, updatePassword
 } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
 import {
   getFirestore, collection, doc, getDoc, getDocs, setDoc, addDoc, updateDoc, deleteDoc,
   query, where, serverTimestamp, Timestamp, onSnapshot
 } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
-import { firebaseConfig, ALLOWED_EMAIL_DOMAIN, SUPER_ADMIN_EMAILS } from "./config.js?v=40";
-import { INVENTORY_SEED, INVENTORY_STATUSES, INVENTORY_MODELS, INVENTORY_CATEGORIES, CATEGORY_MAX } from "./inventory-seed.js?v=40";
+import { firebaseConfig, ALLOWED_EMAIL_DOMAIN, SUPER_ADMIN_EMAILS, USERNAME_MAP } from "./config.js?v=42";
+import { INVENTORY_SEED, INVENTORY_STATUSES, INVENTORY_MODELS, INVENTORY_CATEGORIES, CATEGORY_MAX } from "./inventory-seed.js?v=42";
 
 const isSuperAdminEmail = (email) =>
   (SUPER_ADMIN_EMAILS || []).map((e) => e.toLowerCase()).includes((email || "").toLowerCase());
@@ -38,7 +39,7 @@ const C = {
 };
 
 // ---------- App meta ----------
-const APP_VERSION = "v4.1.1";
+const APP_VERSION = "v4.3.0";
 
 // ---------- Night mode (personal preference, stored per-browser) ----------
 const THEME_KEY = "vulcan_theme";
@@ -193,6 +194,55 @@ $("google-signin-btn").addEventListener("click", async () => {
 $("signout-btn").addEventListener("click", () => signOut(auth));
 $("theme-toggle") && $("theme-toggle").addEventListener("click", toggleTheme);
 syncThemeToggleUI();
+
+// ---------- Code sign-in (username + PIN, for devices without Google) ----------
+let PIN = "";
+function setPin(next) {
+  PIN = next.slice(0, 10);
+  const disp = $("pin-display");
+  if (disp) disp.textContent = PIN.length ? "•".repeat(PIN.length) : "Enter your code";
+}
+function resolveUsername(input) {
+  const v = (input || "").trim();
+  if (!v) return "";
+  if (v.includes("@")) return v.toLowerCase();
+  const mapped = USERNAME_MAP[v.toLowerCase()];
+  return mapped || "";
+}
+$("show-code-login") && $("show-code-login").addEventListener("click", () => {
+  $("login-screen").querySelector(".login-card:not(.hidden)").classList.add("hidden");
+  $("code-login-card").classList.remove("hidden");
+  setPin("");
+});
+$("hide-code-login") && $("hide-code-login").addEventListener("click", () => {
+  $("code-login-card").classList.add("hidden");
+  $("login-screen").querySelectorAll(".login-card")[0].classList.remove("hidden");
+  setPin("");
+});
+document.querySelectorAll(".num-btn[data-num]").forEach((b) =>
+  b.addEventListener("click", () => setPin(PIN + b.dataset.num)));
+$("pin-back") && $("pin-back").addEventListener("click", () => setPin(PIN.slice(0, -1)));
+$("pin-clear") && $("pin-clear").addEventListener("click", () => setPin(""));
+$("code-signin-btn") && $("code-signin-btn").addEventListener("click", async () => {
+  const email = resolveUsername($("code-username").value);
+  if (!email) { toast("Unknown username — try your full email instead.", true); return; }
+  if (PIN.length < 6) { toast("Code must be at least 6 digits.", true); return; }
+  const btn = $("code-signin-btn");
+  btn.disabled = true; btn.textContent = "Signing in…";
+  try {
+    await signInWithEmailAndPassword(auth, email, PIN);
+  } catch (e) {
+    const msg = e.code === "auth/invalid-credential" || e.code === "auth/wrong-password"
+      ? "Wrong code. Try again."
+      : e.code === "auth/user-not-found"
+      ? "No account for that username yet."
+      : "Sign-in failed: " + e.message;
+    toast(msg, true);
+    setPin("");
+  }
+  btn.disabled = false; btn.textContent = "Sign in";
+});
+setPin("");
 
 onAuthStateChanged(auth, async (user) => {
   clearView();
@@ -740,7 +790,7 @@ function render() {
 function viewMap(highlight) {
   const h = highlight ? "&highlight=" + encodeURIComponent(highlight) : "";
   pendingHighlight = null;
-  viewEl.innerHTML = `<div class="map-wrap"><iframe class="map-frame" src="assets/office-map.html?v=40${h}" title="Office Map"></iframe></div>`;
+  viewEl.innerHTML = `<div class="map-wrap"><iframe class="map-frame" src="assets/office-map.html?v=42${h}" title="Office Map"></iframe></div>`;
 }
 
 // IT Service board + Inventory placeholder are defined lower in the file.
@@ -1994,6 +2044,21 @@ async function viewSettings() {
     </div>
 
     <div class="card card-pad settings-section">
+      <div class="settings-section-title">Sign-in code</div>
+      <p class="greeting-sub" style="margin-bottom:14px">Set a numeric code so you can sign in on a device without using Google — your phone, for example. It's tied to this same account; nobody else can use it.</p>
+      <div class="settings-row" style="align-items:flex-start">
+        <div style="flex:1">
+          <label class="field-label">Username you'll type</label>
+          <div class="nm" style="margin:4px 0 12px">${esc(ME.email)}${Object.entries(USERNAME_MAP || {}).find(([, v]) => v === ME.email) ? ` (or "${Object.entries(USERNAME_MAP).find(([, v]) => v === ME.email)[0]}")` : ""}</div>
+          <label class="field-label">Set a code (6+ digits)</label>
+          <input id="pin-set-1" type="password" inputmode="numeric" pattern="[0-9]*" class="modal-input" placeholder="New code" style="margin:4px 0 8px;max-width:220px" />
+          <input id="pin-set-2" type="password" inputmode="numeric" pattern="[0-9]*" class="modal-input" placeholder="Confirm code" style="max-width:220px" />
+          <div class="mt-18"><button class="btn btn-primary btn-sm" id="pin-set-save">Save code</button></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card card-pad settings-section">
       <div class="settings-section-title">People &amp; roles</div>
       <p class="greeting-sub" style="margin-bottom:14px">Set each person's role.${canDelete ? " Only a super admin can delete a user — deleting removes their profile and all of their records." : ""}</p>
       <div class="table-wrap">
@@ -2025,6 +2090,21 @@ async function viewSettings() {
     if (inp) inp.value = "#16181d";
     toast("Title color reset");
   });
+  $("pin-set-save") && $("pin-set-save").addEventListener("click", guard(async () => {
+    const p1 = $("pin-set-1").value, p2 = $("pin-set-2").value;
+    if (!/^\d{6,10}$/.test(p1)) { toast("Code must be 6–10 digits.", true); return; }
+    if (p1 !== p2) { toast("Codes don't match.", true); return; }
+    try {
+      const cred = EmailAuthProvider.credential(auth.currentUser.email, p1);
+      const hasPasswordAlready = auth.currentUser.providerData.some((p) => p.providerId === "password");
+      if (hasPasswordAlready) await updatePassword(auth.currentUser, p1);
+      else await linkWithCredential(auth.currentUser, cred);
+      $("pin-set-1").value = ""; $("pin-set-2").value = "";
+      toast("Sign-in code saved");
+    } catch (e) {
+      toast("Couldn't save code: " + e.message, true);
+    }
+  }));
   viewEl.querySelectorAll("select.role-select").forEach((sel) =>
     sel.addEventListener("change", guard(async () => {
       await updateDoc(doc(C.users, sel.dataset.uid), { role: sel.value });

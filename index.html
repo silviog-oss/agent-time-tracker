@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Vulcan</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2024%2024%22%3E%3Crect%20width%3D%2224%22%20height%3D%2224%22%20rx%3D%225%22%20fill%3D%22%2316181D%22/%3E%3Cpath%20d%3D%22M4%208h11a6%206%200%200%200%205%203l2-2v4.2A5.8%205.8%200%200%201%2016.2%2019H13l1.4%203H7.6L9%2019H8a4%204%200%200%201-4-4V8Z%22%20fill%3D%22%23FF6A00%22/%3E%3Crect%20x%3D%227%22%20y%3D%2222%22%20width%3D%2212%22%20height%3D%222%22%20rx%3D%221%22%20fill%3D%22%23FF6A00%22/%3E%3C/svg%3E" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
@@ -30,9 +31,37 @@
         <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true"><path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.4 29.3 35.5 24 35.5c-6.3 0-11.5-5.2-11.5-11.5S17.7 12.5 24 12.5c2.9 0 5.5 1.1 7.5 2.9l5.7-5.7C33.6 6.5 29.1 4.5 24 4.5 13.2 4.5 4.5 13.2 4.5 24S13.2 43.5 24 43.5c11 0 19.5-8 19.5-19.5 0-1.2-.1-2.3-.3-3.5z"/><path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.6 15.1 18.9 12.5 24 12.5c2.9 0 5.5 1.1 7.5 2.9l5.7-5.7C33.6 6.5 29.1 4.5 24 4.5 16.3 4.5 9.7 8.9 6.3 14.7z"/><path fill="#4CAF50" d="M24 43.5c5.2 0 9.6-2 13-5.2l-6-5.1c-2 1.4-4.5 2.3-7 2.3-5.3 0-9.7-3.1-11.3-7.5l-6.5 5C9.6 39 16.2 43.5 24 43.5z"/><path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.1-4 5.2l6 5.1c-.4.4 6.7-4.9 6.7-14.3 0-1.2-.1-2.3-.4-3.5z"/></svg>
         Continue with Google
       </button>
+      <button id="show-code-login" class="login-link-btn">Sign in with a code instead</button>
       <p class="login-note">Use your work Google account. New accounts start as agents.</p>
     </div>
-    <footer class="login-footer">Vulcan · internal tool · <span class="app-version">v4.1.1</span></footer>
+
+    <div class="login-card hidden" id="code-login-card">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M3 7h11a6 6 0 0 0 5 3l2-2v4.2A5.8 5.8 0 0 1 15.2 18H12l1.4 3H6.6L8 18H7a4 4 0 0 1-4-4V7Z" fill="currentColor"/><rect x="6" y="21" width="12" height="2" rx="1" fill="currentColor"/></svg></span>
+        <span class="brand-name">Vulcan</span>
+      </div>
+      <h1>Sign in with a code</h1>
+      <p class="login-sub">For devices where you'd rather not use Google. You must set a code first from an existing session (Settings → Sign-in code).</p>
+      <input id="code-username" class="modal-input" placeholder="Username or email" style="margin-bottom:12px" autocomplete="username" />
+      <div class="pin-display" id="pin-display" aria-live="polite"></div>
+      <div class="numberpad">
+        <button class="num-btn" data-num="1">1</button>
+        <button class="num-btn" data-num="2">2</button>
+        <button class="num-btn" data-num="3">3</button>
+        <button class="num-btn" data-num="4">4</button>
+        <button class="num-btn" data-num="5">5</button>
+        <button class="num-btn" data-num="6">6</button>
+        <button class="num-btn" data-num="7">7</button>
+        <button class="num-btn" data-num="8">8</button>
+        <button class="num-btn" data-num="9">9</button>
+        <button class="num-btn num-btn-ghost" id="pin-clear">Clear</button>
+        <button class="num-btn" data-num="0">0</button>
+        <button class="num-btn num-btn-ghost" id="pin-back">⌫</button>
+      </div>
+      <button id="code-signin-btn" class="btn btn-primary" style="margin-top:14px">Sign in</button>
+      <button id="hide-code-login" class="login-link-btn">← Back to Google sign-in</button>
+    </div>
+    <footer class="login-footer">Vulcan · internal tool · <span class="app-version">v4.3.0</span></footer>
   </div>
 
   <!-- ============ APP SHELL ============ -->
@@ -73,7 +102,7 @@
         <div class="topbar-clock" id="topbar-clock"></div>
       </header>
       <div id="view" class="view"><!-- active view injected here --></div>
-      <footer class="app-footer"><span class="app-version">v4.1.1</span></footer>
+      <footer class="app-footer"><span class="app-version">v4.3.0</span></footer>
     </main>
 
     <div id="scrim" class="scrim"></div>
@@ -82,6 +111,6 @@
   <!-- Toast -->
   <div id="toast" class="toast hidden"></div>
 
-  <script type="module" src="assets/js/app.js?v=40"></script>
+  <script type="module" src="assets/js/app.js?v=42"></script>
 </body>
 </html>
