@@ -1070,10 +1070,10 @@ function App(){
                     }
                   }
                   const wallBorder="1px solid #374151";
-                  const borderVal=isWall?wallBorder:isBlock?"1px solid #161B22":isEmpty?"1.5px dashed var(--line-2)":`1px solid ${s.border}`;
                   if(!cub)return(<div key={key} className="desk-empty" onClick={()=>openCellChooser(row,col)} onDragOver={e=>handleDragOver(e,row,col)} onDrop={e=>handleDrop(e,row,col)}
                     title="Click to add"
                     style={{borderRadius:"var(--r-xs)",cursor:"pointer",background:isPending?"var(--brand-wash)":isOver?"var(--brand-wash)":"transparent",border:isPending?"2px solid var(--brand)":isOver?"2px dashed var(--brand)":"1px dashed transparent"}}/>);
+                  const borderVal=isWall?wallBorder:isBlock?"1px solid #161B22":isEmpty?"1.5px dashed var(--line-2)":`1px solid ${s.border}`;
                   const cls=`desk${isSel?" desk--sel":""}${isMultiSel?" desk--multisel":""}${isMatch?" desk--match":""}${isOver&&dragging?.id!==cub.id?" desk--over":""}`;
                   return(
                     <div key={key} draggable={!isReserved||!isSel} className={cls} onDragStart={e=>handleDragStart(e,cub)} onDragEnd={handleDragEnd}
