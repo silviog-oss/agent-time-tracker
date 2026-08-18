@@ -55,6 +55,7 @@
   .desk{transition:box-shadow .14s ease, transform .12s ease, border-color .12s ease;}
   .desk:hover{transform:translateY(-2px);box-shadow:var(--sh-2);z-index:3;}
   .desk--sel,.desk--sel:hover{box-shadow:0 0 0 2px var(--brand), var(--sh-2)!important;}
+  .desk--multisel,.desk--multisel:hover{box-shadow:0 0 0 2px #7C3AED, var(--sh-2)!important;}
   .desk--match,.desk--match:hover{box-shadow:0 0 0 2px var(--warn), 0 0 0 6px rgba(224,168,0,.20)!important;z-index:4;}
   .desk--over,.desk--over:hover{box-shadow:0 0 0 2px var(--brand)!important;}
   .desk-empty{transition:background .12s ease, border-color .12s ease;}
@@ -289,6 +290,7 @@ function App(){
   const hasUnsavedRef=useRef(false);
   useEffect(()=>{hasUnsavedRef.current=hasUnsaved;},[hasUnsaved]);
   const [selected,setSelected]=useState(null);
+  const [multiSelected,setMultiSelected]=useState(()=>new Set());
   const [panel,setPanel]=useState("view");
   const [search,setSearch]=useState(()=>{try{return new URLSearchParams(location.search).get("highlight")||"";}catch{return "";}});
   const [dragging,setDragging]=useState(null);
@@ -496,25 +498,52 @@ function App(){
   const grid={};cubicles.forEach(c=>{grid[`${c.row}-${c.col}`]=c;});
   // Cells covered by a spanning block/wall (excluding its own origin) are skipped
   // when rendering, so CSS grid's auto-placement flows correctly around it.
-  const covered=new Set();
+  // Stored as a Map (not just a Set) so we can look up WHICH item covers a
+  // cell — needed to detect two walls touching, so their shared border can
+  // be hidden and they read as one continuous wall.
+  const covered=new Map();
   cubicles.forEach(c=>{
     if(c.role!=="__block__"&&c.role!=="__wall__") return;
     const wv=(resizePreview&&resizePreview.id===c.id)?resizePreview.w:(c.w||1);
     const hv=(resizePreview&&resizePreview.id===c.id)?resizePreview.h:(c.h||1);
     for(let rr=c.row;rr<c.row+hv;rr++)for(let cc=c.col;cc<c.col+wv;cc++){
       if(rr===c.row&&cc===c.col) continue;
-      covered.add(`${rr}-${cc}`);
+      covered.set(`${rr}-${cc}`,c);
     }
   });
+  function roleAt(r,c){
+    const key=`${r}-${c}`;
+    if(grid[key]) return grid[key].role;
+    if(covered.has(key)) return covered.get(key).role;
+    return null;
+  }
+  const gapPx=Math.max(1,Math.round(3*zoom));
   const hlIds=search.trim()?new Set(cubicles.filter(c=>matches(c,search)).map(c=>c.id)):new Set();
   const whlIds=search.trim()?new Set(wfh.filter(c=>matches(c,search)).map(c=>c.id)):new Set();
 
   const toastBg={success:"var(--ok)",error:"var(--danger)",info:"#1B1F26"};
   function showToast(msg,type="info"){setToast(msg);setToastType(type);setTimeout(()=>setToast(""),2400);}
 
-  function selectCubicle(c){if(dragging)return;setPendingCell(null);setSelected(c);setPanel("view");setDevicesForm(withStandardSlots((c.devices||[]).map(d=>({...d}))));setPersonForm({name:c.name,role:c.role});setExpandedDevices({});}
+  function selectCubicle(c){if(dragging)return;setMultiSelected(new Set());setPendingCell(null);setSelected(c);setPanel("view");setDevicesForm(withStandardSlots((c.devices||[]).map(d=>({...d}))));setPersonForm({name:c.name,role:c.role});setExpandedDevices({});}
+  function toggleMultiSelect(c){
+    setSelected(null);setPendingCell(null);
+    setMultiSelected(prev=>{
+      const next=new Set(prev);
+      if(next.has(c.id)) next.delete(c.id); else next.add(c.id);
+      return next;
+    });
+  }
+  function clickCubicle(e,c){ if(e.shiftKey) toggleMultiSelect(c); else selectCubicle(c); }
+  function deleteMultiSelected(){
+    if(multiSelected.size===0) return;
+    const targets=cubicles.filter(c=>multiSelected.has(c.id));
+    pushState({cubicles:cubicles.filter(c=>!multiSelected.has(c.id))});
+    targets.forEach(c=>{ if(c.name) pushToInventory(c.name,[]); });
+    showToast(`Deleted ${targets.length} item${targets.length!==1?"s":""}`);
+    setMultiSelected(new Set());
+  }
 
-  function openCellChooser(row,col){if(dragging)return;setSelected(null);setPanel("view");setPendingCell({row,col});}
+  function openCellChooser(row,col){if(dragging)return;setSelected(null);setMultiSelected(new Set());setPanel("view");setPendingCell({row,col});}
   function chooseCellType(kind){
     if(!pendingCell)return;
     if(kind==="empty"){placeEmptySeatAt(pendingCell.row,pendingCell.col);return;}
@@ -756,6 +785,15 @@ function App(){
 
         {toast&&<div className="toast-in" style={{position:"fixed",top:18,left:"50%",transform:"translateX(-50%)",background:toastBg[toastType]||"#1B1F26",color:"#fff",padding:"11px 20px",borderRadius:"var(--r)",fontSize:13,fontWeight:600,zIndex:9999,boxShadow:"var(--sh-3)",pointerEvents:"none",letterSpacing:"-.1px"}}>{toast}</div>}
 
+        {multiSelected.size>0&&(
+          <div style={{position:"fixed",bottom:22,left:"50%",transform:"translateX(-50%)",background:"var(--surface)",border:"1px solid var(--line)",borderRadius:"var(--r-lg)",boxShadow:"var(--sh-4)",padding:"12px 16px",display:"flex",alignItems:"center",gap:14,zIndex:9996}}>
+            <span style={{fontSize:13,fontWeight:700,color:"var(--ink)"}}>{multiSelected.size} selected</span>
+            <span style={{fontSize:12,color:"var(--ink-3)"}}>Shift-click to add or remove more</span>
+            <button onClick={deleteMultiSelected} style={{...btn("var(--surface)","var(--danger)"),border:"1px solid #F6C9CB",boxShadow:"none",padding:"7px 14px",fontSize:12.5}}>Delete selected</button>
+            <button onClick={()=>setMultiSelected(new Set())} style={{...ghost(),padding:"7px 14px",fontSize:12.5}}>Cancel</button>
+          </div>
+        )}
+
         {confirm&&(
           <div style={{position:"fixed",inset:0,background:"rgba(11,15,22,0.42)",backdropFilter:"blur(2px)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:9998}}>
             <div className="modal-in" style={{background:"var(--surface)",borderRadius:"var(--r-lg)",padding:24,width:320,textAlign:"center",boxShadow:"var(--sh-4)"}}>
@@ -925,7 +963,7 @@ function App(){
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16,flexWrap:"wrap",gap:12}}>
           <div>
             <h1 style={{fontSize:24,fontWeight:800,letterSpacing:"-.5px",color:"var(--ink)"}}>Office floor</h1>
-            <p style={{marginTop:4,fontSize:12.5,color:"var(--ink-2)"}}>Click a desk to manage · click an empty spot to add · drag to move or swap · <span style={mono}>{ROWS}×{COLS}</span></p>
+            <p style={{marginTop:4,fontSize:12.5,color:"var(--ink-2)"}}>Click a desk to manage · shift-click to select multiple · click an empty spot to add · drag to move or swap · <span style={mono}>{ROWS}×{COLS}</span></p>
           </div>
           <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
             <div style={{display:"flex",gap:4}}>
@@ -998,7 +1036,7 @@ function App(){
               <div ref={gridRef} style={{display:"grid",
                 gridTemplateColumns:zoom===1?`repeat(${COLS}, minmax(56px, 1fr))`:`repeat(${COLS}, ${Math.round(56*zoom)}px)`,
                 gridTemplateRows:`repeat(${ROWS}, ${Math.round(66*zoom)}px)`,
-                gap:Math.max(1,Math.round(3*zoom)),width:zoom===1?"100%":"fit-content"}}>
+                gap:gapPx,width:zoom===1?"100%":"fit-content"}}>
                 {Array.from({length:ROWS},(_,r)=>Array.from({length:COLS},(_,c)=>{
                   const row=r+1,col=c+1,key=`${row}-${col}`;
                   if(covered.has(key)) return null;
@@ -1006,6 +1044,7 @@ function App(){
                   const isOver=dragOver?.row===row&&dragOver?.col===col;
                   const isDraggingThis=dragging&&cub&&dragging.id===cub.id;
                   const isSel=selected&&cub&&selected.id===cub.id;
+                  const isMultiSel=cub&&multiSelected.has(cub.id);
                   const isMatch=cub&&hlIds.has(cub.id);
                   const isDimmed=search&&cub&&!isMatch;
                   const isBlock=cub?.role==="__block__";
@@ -1017,18 +1056,42 @@ function App(){
                   const isPending=pendingCell&&pendingCell.row===row&&pendingCell.col===col;
                   const spanW=(isReserved&&resizePreview&&resizePreview.id===cub.id)?resizePreview.w:(cub?.w||1);
                   const spanH=(isReserved&&resizePreview&&resizePreview.id===cub.id)?resizePreview.h:(cub?.h||1);
+                  // If this is a wall, check each outer edge for another wall touching it,
+                  // so the shared border can be hidden and the two read as one wall.
+                  let touchTop=false,touchBottom=false,touchLeft=false,touchRight=false;
+                  if(isWall){
+                    for(let cc=col;cc<col+spanW;cc++){
+                      if(roleAt(row-1,cc)==="__wall__") touchTop=true;
+                      if(roleAt(row+spanH,cc)==="__wall__") touchBottom=true;
+                    }
+                    for(let rr=row;rr<row+spanH;rr++){
+                      if(roleAt(rr,col-1)==="__wall__") touchLeft=true;
+                      if(roleAt(rr,col+spanW)==="__wall__") touchRight=true;
+                    }
+                  }
+                  const wallBorder="1px solid #374151";
+                  const borderVal=isWall?wallBorder:isBlock?"1px solid #161B22":isEmpty?"1.5px dashed var(--line-2)":`1px solid ${s.border}`;
                   if(!cub)return(<div key={key} className="desk-empty" onClick={()=>openCellChooser(row,col)} onDragOver={e=>handleDragOver(e,row,col)} onDrop={e=>handleDrop(e,row,col)}
                     title="Click to add"
                     style={{borderRadius:"var(--r-xs)",cursor:"pointer",background:isPending?"var(--brand-wash)":isOver?"var(--brand-wash)":"transparent",border:isPending?"2px solid var(--brand)":isOver?"2px dashed var(--brand)":"1px dashed transparent"}}/>);
-                  const cls=`desk${isSel?" desk--sel":""}${isMatch?" desk--match":""}${isOver&&dragging?.id!==cub.id?" desk--over":""}`;
+                  const cls=`desk${isSel?" desk--sel":""}${isMultiSel?" desk--multisel":""}${isMatch?" desk--match":""}${isOver&&dragging?.id!==cub.id?" desk--over":""}`;
                   return(
                     <div key={key} draggable={!isReserved||!isSel} className={cls} onDragStart={e=>handleDragStart(e,cub)} onDragEnd={handleDragEnd}
-                      onDragOver={e=>handleDragOver(e,row,col)} onDrop={e=>handleDrop(e,row,col)} onClick={()=>selectCubicle(cub)}
+                      onDragOver={e=>handleDragOver(e,row,col)} onDrop={e=>handleDrop(e,row,col)} onClick={e=>clickCubicle(e,cub)}
                       style={{position:"relative",
                         gridColumn:isReserved?`span ${spanW}`:undefined,gridRow:isReserved?`span ${spanH}`:undefined,
                         background:isWall?"repeating-linear-gradient(45deg,#6B7280,#6B7280 6px,#4B5563 6px,#4B5563 12px)":isBlock?"#20262F":isMatch?"#FEF7DC":isOver&&dragging?.id!==cub.id?"var(--brand-wash)":isEmpty?"var(--surface)":s.bg,
-                        border:isWall?"1px solid #374151":isBlock?"1px solid #161B22":isEmpty?"1.5px dashed var(--line-2)":`1px solid ${s.border}`,
-                        borderRadius:isWall?3:"var(--r)",padding:`${Math.max(4,Math.round(12*Math.min(zoom,1.2)))}px ${Math.max(2,Math.round(6*Math.min(zoom,1.2)))}px ${Math.max(3,Math.round(8*Math.min(zoom,1.2)))}px`,cursor:dragging?"grabbing":"pointer",
+                        borderTop:isWall&&touchTop?"none":borderVal,
+                        borderBottom:isWall&&touchBottom?"none":borderVal,
+                        borderLeft:isWall&&touchLeft?"none":borderVal,
+                        borderRight:isWall&&touchRight?"none":borderVal,
+                        borderTopLeftRadius:isWall?(touchTop||touchLeft?0:3):"var(--r)",
+                        borderTopRightRadius:isWall?(touchTop||touchRight?0:3):"var(--r)",
+                        borderBottomLeftRadius:isWall?(touchBottom||touchLeft?0:3):"var(--r)",
+                        borderBottomRightRadius:isWall?(touchBottom||touchRight?0:3):"var(--r)",
+                        marginTop:isWall&&touchTop?-gapPx:0,
+                        marginLeft:isWall&&touchLeft?-gapPx:0,
+                        padding:`${Math.max(4,Math.round(12*Math.min(zoom,1.2)))}px ${Math.max(2,Math.round(6*Math.min(zoom,1.2)))}px ${Math.max(3,Math.round(8*Math.min(zoom,1.2)))}px`,cursor:dragging?"grabbing":"pointer",
                         display:"flex",flexDirection:"column",justifyContent:"center",alignItems:"center",gap:2,
                         textAlign:"center",opacity:isDraggingThis?0.4:isDimmed?0.28:1,userSelect:"none",overflow:"hidden"}}>
                       {!isReserved&&<div style={{position:"absolute",top:6,left:"50%",transform:"translateX(-50%)",width:26,height:4,borderRadius:3,background:isEmpty?"#DEE2E9":s.dot}}/>}
