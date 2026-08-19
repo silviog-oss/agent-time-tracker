@@ -38,7 +38,7 @@ service cloud.firestore {
 
       // First login creates the profile. New users must start as 'agent'
       // so nobody can self-promote to admin.
-      allow create: if isOwner(userId) && request.resource.data.role == 'agent';
+      allow create: if isOwner(userId) && request.resource.data.role == 'map';
 
       // Owner may update their own profile but NOT their role.
       // Admins may update anything (including promoting/demoting roles).
@@ -96,7 +96,7 @@ service cloud.firestore {
       return isSuperAdmin() ? 'super_admin'
         : (exists(/databases/$(database)/documents/users/$(request.auth.uid))
             ? get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role
-            : 'agent');
+            : 'map');
     }
     function isITStaff() {
       return isSignedIn() && myRole() in ['super_admin','it_admin','admin','it_agent'];
@@ -106,6 +106,13 @@ service cloud.firestore {
     }
     function canCreateShopping() {
       return isSignedIn() && myRole() in ['super_admin','it_admin','admin','supervisor'];
+    }
+    // "map" is the view-only role; every other role (including map_editor)
+    // may edit the shared office map. Mirrors the client's own check in
+    // viewMap() — this is what actually enforces it, since a client-side
+    // hidden button is not real security.
+    function canEditMap() {
+      return isSignedIn() && myRole() != 'map';
     }
 
     // ---- IT requests ----
@@ -130,14 +137,17 @@ service cloud.firestore {
       allow create, update, delete: if isITStaff();
     }
 
-    // ---- Shared settings (e.g. the office map) — any signed-in user ----
+    // ---- Shared settings (e.g. the office map) — anyone may read;
+    // only non-"map"-role users (including map_editor) may write ----
     match /settings/{id} {
-      allow read, write: if isSignedIn();
+      allow read: if isSignedIn();
+      allow write: if canEditMap();
     }
 
-    // ---- Map history snapshots — any signed-in user (matches map access) ----
+    // ---- Map history snapshots — anyone may read; only editors write ----
     match /map_history/{id} {
-      allow read, create, delete: if isSignedIn();
+      allow read: if isSignedIn();
+      allow create, delete: if canEditMap();
     }
   }
 }

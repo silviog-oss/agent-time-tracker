@@ -293,6 +293,7 @@ function App(){
   const [multiSelected,setMultiSelected]=useState(()=>new Set());
   const [panel,setPanel]=useState("view");
   const [search,setSearch]=useState(()=>{try{return new URLSearchParams(location.search).get("highlight")||"";}catch{return "";}});
+  const canEdit=(()=>{try{const v=new URLSearchParams(location.search).get("edit");return v===null?true:v==="1";}catch{return true;}})();
   const [dragging,setDragging]=useState(null);
   const [dragOver,setDragOver]=useState(null);
   const [confirm,setConfirm]=useState(null);
@@ -533,7 +534,7 @@ function App(){
       return next;
     });
   }
-  function clickCubicle(e,c){ if(e.shiftKey) toggleMultiSelect(c); else selectCubicle(c); }
+  function clickCubicle(e,c){ if(e.shiftKey&&canEdit) toggleMultiSelect(c); else selectCubicle(c); }
   function deleteMultiSelected(){
     if(multiSelected.size===0) return;
     const targets=cubicles.filter(c=>multiSelected.has(c.id));
@@ -860,7 +861,7 @@ function App(){
                   <div style={{fontSize:12,color:"var(--ink-2)"}}>Keeps your last 6 saves.</div>
                 </div>
                 <div style={{display:"flex",gap:10,alignItems:"center"}}>
-                  {historyList.length>0&&<button onClick={clearAllHistory} style={{background:"none",border:"none",color:"var(--danger)",fontSize:12,fontWeight:600,cursor:"pointer"}}>Clear all</button>}
+                  {canEdit&&historyList.length>0&&<button onClick={clearAllHistory} style={{background:"none",border:"none",color:"var(--danger)",fontSize:12,fontWeight:600,cursor:"pointer"}}>Clear all</button>}
                   <button onClick={()=>setShowHistory(false)} style={{background:"none",border:"none",fontSize:22,cursor:"pointer",color:"var(--ink-3)",lineHeight:1}}>×</button>
                 </div>
               </div>
@@ -873,10 +874,10 @@ function App(){
                         <div style={{fontSize:13,fontWeight:600}}>{new Date(snap.saved_at).toLocaleString([],{month:"short",day:"numeric",hour:"numeric",minute:"2-digit"})}</div>
                         <div style={{fontSize:11.5,color:"var(--ink-3)"}}>{(snap.state.cubicles||[]).filter(c=>c.name).length} people on the floor · saved before {snap.saved_by_name}'s change</div>
                       </div>
-                      <div style={{display:"flex",gap:6,flexShrink:0}}>
+                      {canEdit&&<div style={{display:"flex",gap:6,flexShrink:0}}>
                         <button onClick={()=>restoreSnapshot(snap)} style={{...btn("var(--brand)","#fff"),padding:"7px 14px",fontSize:12.5}}>Restore</button>
                         <button onClick={()=>deleteHistoryEntry(snap.id)} title="Delete this snapshot" style={{background:"none",border:"none",color:"var(--danger)",cursor:"pointer",fontSize:15,padding:"0 4px"}}>🗑</button>
-                      </div>
+                      </div>}
                     </div>
                   ))
                 }
@@ -894,7 +895,7 @@ function App(){
               </div>
               <div style={{display:"flex",flex:1,overflow:"hidden"}}>
                 <div style={{width:210,borderRight:"1px solid var(--line)",overflowY:"auto",padding:12,background:"var(--surface-2)"}}>
-                  <div style={{marginBottom:10,background:"var(--surface)",borderRadius:"var(--r-sm)",padding:10,border:"1px solid var(--line)"}}>
+                  {canEdit&&<div style={{marginBottom:10,background:"var(--surface)",borderRadius:"var(--r-sm)",padding:10,border:"1px solid var(--line)"}}>
                     <div style={{fontSize:10,fontWeight:700,color:"var(--ink-2)",marginBottom:7,textTransform:"uppercase",letterSpacing:".04em"}}>Add WFH agent</div>
                     <input value={wfhForm.name} onChange={e=>setWfhForm(f=>({...f,name:e.target.value}))} placeholder="Name" style={{...iStyle,marginBottom:6}}/>
                     <select value={wfhForm.role} onChange={e=>{if(e.target.value==="__new__")requestNewRole("wfh");else setWfhForm(f=>({...f,role:e.target.value}));}} style={{...iStyle,marginBottom:7}}>
@@ -903,7 +904,7 @@ function App(){
                       <option value="__new__">＋ Add new role…</option>
                     </select>
                     <button onClick={addToWFH} style={{...btn("var(--ink)","#fff"),width:"100%",padding:"7px 0",fontSize:12}}>Add</button>
-                  </div>
+                  </div>}
                   {wfh.length===0?<div style={{fontSize:12,color:"var(--ink-3)",textAlign:"center",padding:"20px 0"}}>No WFH agents</div>
                     :wfh.map(w=>{const ws=styleFor(w.role);const im=whlIds.has(w.id);const on=wfhSelected?.id===w.id;
                       return(<div key={w.id} onClick={()=>{setWfhSelected(w);setWfhPanel("view");setWfhDevicesForm(withStandardSlots((w.devices||[]).map(d=>({...d}))));setWfhExpandedDevices({});}}
@@ -929,23 +930,23 @@ function App(){
                         </div>
                         <button onClick={()=>setWfhSelected(null)} style={{background:"none",border:"none",fontSize:18,cursor:"pointer",color:"var(--ink-3)"}}>×</button>
                       </div>
-                      <Segment options={[["view","View"],["devices","Devices"]]} value={wfhPanel} onChange={(p)=>{setWfhPanel(p);if(p==="devices")setWfhDevicesForm(withStandardSlots((wfhSelected.devices||[]).map(d=>({...d}))));}}/>
-                      {wfhPanel==="view"&&(
+                      {canEdit&&<Segment options={[["view","View"],["devices","Devices"]]} value={wfhPanel} onChange={(p)=>{setWfhPanel(p);if(p==="devices")setWfhDevicesForm(withStandardSlots((wfhSelected.devices||[]).map(d=>({...d}))));}}/>}
+                      {(!canEdit||wfhPanel==="view")&&(
                         <>
                           <div style={{fontSize:12,fontWeight:600,color:"var(--ink-2)",marginBottom:8}}>Devices ({(wfhSelected.devices||[]).length})</div>
-                          <DeviceList devices={wfhSelected.devices} expanded={wfhExpandedDevices} setExpanded={setWfhExpandedDevices} onRemove={removeWfhDeviceInline}/>
-                          <div style={{marginTop:12,padding:12,background:"var(--surface-2)",borderRadius:"var(--r-sm)",border:"1px solid var(--line)"}}>
+                          <DeviceList devices={wfhSelected.devices} expanded={wfhExpandedDevices} setExpanded={setWfhExpandedDevices} onRemove={canEdit?removeWfhDeviceInline:()=>{}}/>
+                          {canEdit&&<div style={{marginTop:12,padding:12,background:"var(--surface-2)",borderRadius:"var(--r-sm)",border:"1px solid var(--line)"}}>
                             <div style={{fontSize:11,fontWeight:700,color:"var(--ink-2)",marginBottom:8,textTransform:"uppercase",letterSpacing:".04em"}}>Return to map</div>
                             <div style={{display:"flex",gap:6,marginBottom:8}}>
                               <div style={{flex:1}}><div style={lStyle}>Row</div><input type="number" value={returnCoords[wfhSelected.id]?.row||""} onChange={e=>setReturnCoords(r=>({...r,[wfhSelected.id]:{...r[wfhSelected.id],row:e.target.value}}))} style={iStyle} placeholder={`1–${ROWS}`}/></div>
                               <div style={{flex:1}}><div style={lStyle}>Col</div><input type="number" value={returnCoords[wfhSelected.id]?.col||""} onChange={e=>setReturnCoords(r=>({...r,[wfhSelected.id]:{...r[wfhSelected.id],col:e.target.value}}))} style={iStyle} placeholder={`1–${COLS}`}/></div>
                             </div>
                             <button onClick={()=>returnFromWFH(wfhSelected,returnCoords[wfhSelected.id]?.row,returnCoords[wfhSelected.id]?.col)} style={{...btn("var(--ok)","#fff"),width:"100%",padding:"8px 0",fontSize:12.5}}>Place on map</button>
-                          </div>
-                          <button onClick={()=>removeFromWFH(wfhSelected.id)} style={{...btn("var(--surface)","var(--danger)"),width:"100%",padding:"8px 0",fontSize:12.5,border:"1px solid #F6C9CB",boxShadow:"none",marginTop:8}}>Remove {wfhSelected.name}</button>
+                          </div>}
+                          {canEdit&&<button onClick={()=>removeFromWFH(wfhSelected.id)} style={{...btn("var(--surface)","var(--danger)"),width:"100%",padding:"8px 0",fontSize:12.5,border:"1px solid #F6C9CB",boxShadow:"none",marginTop:8}}>Remove {wfhSelected.name}</button>}
                         </>
                       )}
-                      {wfhPanel==="devices"&&wfhDevicesForm&&(
+                      {canEdit&&wfhPanel==="devices"&&wfhDevicesForm&&(
                         <>
                           <div style={{fontSize:12,fontWeight:600,color:"var(--ink-2)",marginBottom:8}}>Edit devices</div>
                           <DeviceEditList form={wfhDevicesForm} setForm={setWfhDevicesForm}/>
@@ -977,13 +978,16 @@ function App(){
             </div>
             {search&&<span style={{fontSize:12,color:"var(--brand-ink)",fontWeight:700}}>{hlIds.size+whlIds.size} match{hlIds.size+whlIds.size!==1?"es":""}</span>}
             <button onClick={()=>setShowWFH(true)} style={{...btn("var(--ink)","#fff")}}>WFH {wfh.length>0&&<span style={{background:"#fff",color:"var(--ink)",borderRadius:999,padding:"1px 6px",fontSize:10,fontWeight:800,marginLeft:5}}>{wfh.length}</span>}</button>
-            <button onClick={()=>{setPendingCell(null);setSelected(null);setPanel("addblack");setAddForm({name:"",role:"",row:"",col:""}); }} style={{...ghost()}}>Add block</button>
-            <button onClick={()=>{setPendingCell(null);setSelected(null);setPanel("addwall");setAddForm({name:"",role:"",row:"",col:""}); }} style={{...ghost()}}>Add wall</button>
-            <button onClick={()=>{setPendingCell(null);setSelected(null);setPanel("addempty");setAddForm({name:"",role:"",row:"",col:""});}} style={{...ghost()}}>Add empty seat</button>
-            <button onClick={()=>{setPendingCell(null);setSelected(null);setPanel("add");setAddForm({name:"",role:"",row:"",col:""});}} style={{...btn("var(--brand)","#fff")}}>Add person</button>
-            <button onClick={pullFromInventory} title="Fill each person's devices from the Inventory tab" style={{...ghost()}}>Pull inventory</button>
+            {canEdit&&<button onClick={()=>{setPendingCell(null);setSelected(null);setPanel("addblack");setAddForm({name:"",role:"",row:"",col:""}); }} style={{...ghost()}}>Add block</button>}
+            {canEdit&&<button onClick={()=>{setPendingCell(null);setSelected(null);setPanel("addwall");setAddForm({name:"",role:"",row:"",col:""}); }} style={{...ghost()}}>Add wall</button>}
+            {canEdit&&<button onClick={()=>{setPendingCell(null);setSelected(null);setPanel("addempty");setAddForm({name:"",role:"",row:"",col:""});}} style={{...ghost()}}>Add empty seat</button>}
+            {canEdit&&<button onClick={()=>{setPendingCell(null);setSelected(null);setPanel("add");setAddForm({name:"",role:"",row:"",col:""});}} style={{...btn("var(--brand)","#fff")}}>Add person</button>}
+            {canEdit&&<button onClick={pullFromInventory} title="Fill each person's devices from the Inventory tab" style={{...ghost()}}>Pull inventory</button>}
             <button onClick={openHistory} style={{...ghost()}}>History</button>
-            <button onClick={saveMap} style={{...btn(hasUnsaved?"var(--ok)":"var(--surface)",hasUnsaved?"#fff":"var(--ink-3)"),border:hasUnsaved?"none":"1px solid var(--line)",boxShadow:hasUnsaved?"var(--sh-1)":"none",minWidth:80}}>{hasUnsaved?"Save":"Saved"}</button>
+            {canEdit
+              ?<button onClick={saveMap} style={{...btn(hasUnsaved?"var(--ok)":"var(--surface)",hasUnsaved?"#fff":"var(--ink-3)"),border:hasUnsaved?"none":"1px solid var(--line)",boxShadow:hasUnsaved?"var(--sh-1)":"none",minWidth:80}}>{hasUnsaved?"Save":"Saved"}</button>
+              :<span style={{fontSize:12,color:"var(--ink-3)",fontWeight:600,padding:"8px 4px"}}>View only</span>
+            }
           </div>
         </div>
 
@@ -993,8 +997,8 @@ function App(){
 
         <div style={{display:"flex",gap:12,marginBottom:14,alignItems:"center",flexWrap:"wrap",justifyContent:"space-between"}}>
           <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
-            <span style={{fontSize:11,fontWeight:700,color:"var(--ink-2)",textTransform:"uppercase",letterSpacing:".04em"}}>Room size</span>
-            {[["Rows",()=>resizeGrid(-1,0),ROWS,()=>resizeGrid(1,0)],["Cols",()=>resizeGrid(0,-1),COLS,()=>resizeGrid(0,1)]].map(([lbl,dec,val,inc])=>(
+            {canEdit&&<span style={{fontSize:11,fontWeight:700,color:"var(--ink-2)",textTransform:"uppercase",letterSpacing:".04em"}}>Room size</span>}
+            {canEdit&&[["Rows",()=>resizeGrid(-1,0),ROWS,()=>resizeGrid(1,0)],["Cols",()=>resizeGrid(0,-1),COLS,()=>resizeGrid(0,1)]].map(([lbl,dec,val,inc])=>(
               <div key={lbl} style={{display:"flex",alignItems:"center",gap:5,background:"var(--surface)",border:"1px solid var(--line)",borderRadius:"var(--r-sm)",padding:"4px 8px",boxShadow:"var(--sh-1)"}}>
                 <span style={{fontSize:11,color:"var(--ink-3)",fontWeight:600}}>{lbl}</span>
                 <button onClick={dec} style={{background:"var(--surface-2)",color:"var(--ink-2)",border:"1px solid var(--line)",borderRadius:6,width:22,height:22,fontSize:15,cursor:"pointer",lineHeight:1,display:"flex",alignItems:"center",justifyContent:"center"}}>−</button>
@@ -1012,14 +1016,14 @@ function App(){
           </div>
           <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
             {BASE_ROLES.map(role=>{const s=styleFor(role);return(
-              <span key={role} onClick={()=>openRoleEditor(role)} title="Click to customize"
-                style={{display:"inline-flex",alignItems:"center",gap:5,background:s.bg,color:s.text,border:`1px solid ${s.border}`,borderRadius:999,padding:"3px 9px 3px 7px",fontSize:11,fontWeight:600,cursor:"pointer"}}>
+              <span key={role} onClick={canEdit?()=>openRoleEditor(role):undefined} title={canEdit?"Click to customize":undefined}
+                style={{display:"inline-flex",alignItems:"center",gap:5,background:s.bg,color:s.text,border:`1px solid ${s.border}`,borderRadius:999,padding:"3px 9px 3px 7px",fontSize:11,fontWeight:600,cursor:canEdit?"pointer":"default"}}>
                 <span style={{width:7,height:7,borderRadius:999,background:s.dot}}/>{role}
               </span>
             );})}
             {customRoles.map(role=>{const s=styleFor(role);return(
-              <span key={role} onClick={()=>openRoleEditor(role)} title="Click to customize"
-                style={{display:"inline-flex",alignItems:"center",gap:5,background:s.bg,color:s.text,border:`1px solid ${s.border}`,borderRadius:999,padding:"3px 9px 3px 7px",fontSize:11,fontWeight:600,cursor:"pointer"}}>
+              <span key={role} onClick={canEdit?()=>openRoleEditor(role):undefined} title={canEdit?"Click to customize":undefined}
+                style={{display:"inline-flex",alignItems:"center",gap:5,background:s.bg,color:s.text,border:`1px solid ${s.border}`,borderRadius:999,padding:"3px 9px 3px 7px",fontSize:11,fontWeight:600,cursor:canEdit?"pointer":"default"}}>
                 <span style={{width:7,height:7,borderRadius:999,background:s.dot}}/>{role}
               </span>
             );})}
@@ -1070,14 +1074,14 @@ function App(){
                     }
                   }
                   const wallBorder="1px solid #374151";
-                  if(!cub)return(<div key={key} className="desk-empty" onClick={()=>openCellChooser(row,col)} onDragOver={e=>handleDragOver(e,row,col)} onDrop={e=>handleDrop(e,row,col)}
-                    title="Click to add"
-                    style={{borderRadius:"var(--r-xs)",cursor:"pointer",background:isPending?"var(--brand-wash)":isOver?"var(--brand-wash)":"transparent",border:isPending?"2px solid var(--brand)":isOver?"2px dashed var(--brand)":"1px dashed transparent"}}/>);
+                  if(!cub)return(<div key={key} className={canEdit?"desk-empty":""} onClick={canEdit?()=>openCellChooser(row,col):undefined} onDragOver={canEdit?e=>handleDragOver(e,row,col):undefined} onDrop={canEdit?e=>handleDrop(e,row,col):undefined}
+                    title={canEdit?"Click to add":undefined}
+                    style={{borderRadius:"var(--r-xs)",cursor:canEdit?"pointer":"default",background:isPending?"var(--brand-wash)":isOver?"var(--brand-wash)":"transparent",border:isPending?"2px solid var(--brand)":isOver?"2px dashed var(--brand)":"1px dashed transparent"}}/>);
                   const borderVal=isWall?wallBorder:isBlock?"1px solid #161B22":isEmpty?"1.5px dashed var(--line-2)":`1px solid ${s.border}`;
                   const cls=`desk${isSel?" desk--sel":""}${isMultiSel?" desk--multisel":""}${isMatch?" desk--match":""}${isOver&&dragging?.id!==cub.id?" desk--over":""}`;
                   return(
-                    <div key={key} draggable={!isReserved||!isSel} className={cls} onDragStart={e=>handleDragStart(e,cub)} onDragEnd={handleDragEnd}
-                      onDragOver={e=>handleDragOver(e,row,col)} onDrop={e=>handleDrop(e,row,col)} onClick={e=>clickCubicle(e,cub)}
+                    <div key={key} draggable={canEdit&&(!isReserved||!isSel)} className={cls} onDragStart={canEdit?e=>handleDragStart(e,cub):undefined} onDragEnd={canEdit?handleDragEnd:undefined}
+                      onDragOver={canEdit?e=>handleDragOver(e,row,col):undefined} onDrop={canEdit?e=>handleDrop(e,row,col):undefined} onClick={e=>clickCubicle(e,cub)}
                       style={{position:"relative",
                         gridColumn:isReserved?`span ${spanW}`:undefined,gridRow:isReserved?`span ${spanH}`:undefined,
                         background:isWall?"repeating-linear-gradient(45deg,#6B7280,#6B7280 6px,#4B5563 6px,#4B5563 12px)":isBlock?"#20262F":isMatch?"#FEF7DC":isOver&&dragging?.id!==cub.id?"var(--brand-wash)":isEmpty?"var(--surface)":s.bg,
@@ -1091,7 +1095,7 @@ function App(){
                         borderBottomRightRadius:isWall?(touchBottom||touchRight?0:3):"var(--r)",
                         marginTop:isWall&&touchTop?-gapPx:0,
                         marginLeft:isWall&&touchLeft?-gapPx:0,
-                        padding:`${Math.max(4,Math.round(12*Math.min(zoom,1.2)))}px ${Math.max(2,Math.round(6*Math.min(zoom,1.2)))}px ${Math.max(3,Math.round(8*Math.min(zoom,1.2)))}px`,cursor:dragging?"grabbing":"pointer",
+                        padding:`${Math.max(4,Math.round(12*Math.min(zoom,1.2)))}px ${Math.max(2,Math.round(6*Math.min(zoom,1.2)))}px ${Math.max(3,Math.round(8*Math.min(zoom,1.2)))}px`,cursor:canEdit&&dragging?"grabbing":"pointer",
                         display:"flex",flexDirection:"column",justifyContent:"center",alignItems:"center",gap:2,
                         textAlign:"center",opacity:isDraggingThis?0.4:isDimmed?0.28:1,userSelect:"none",overflow:"hidden"}}>
                       {!isReserved&&<div style={{position:"absolute",top:6,left:"50%",transform:"translateX(-50%)",width:26,height:4,borderRadius:3,background:isEmpty?"#DEE2E9":s.dot}}/>}
@@ -1099,7 +1103,7 @@ function App(){
                       {(!isWall||cub.name)&&<div style={{fontSize:Math.max(7,Math.round(11.5*Math.min(zoom,1.2))),fontWeight:700,letterSpacing:"-.15px",color:isBlock?"#AEB6C2":isWall?"#F3F4F6":isEmpty?"var(--ink-3)":"var(--ink)",lineHeight:1.15,fontStyle:isEmpty?"italic":"normal",maxWidth:"100%",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{isBlock?(cub.name||"Reserved"):isWall?cub.name:isEmpty?"Open desk":cub.name}</div>}
                       {!isReserved&&cub.role&&zoom>=0.7&&<div style={{fontSize:Math.max(6,Math.round(8.5*Math.min(zoom,1.2))),fontWeight:700,letterSpacing:".4px",textTransform:"uppercase",color:s.text}}>{cub.role}</div>}
                       {!isReserved&&cubDevices.length>0&&<div style={{marginTop:2,fontSize:9,fontWeight:600,color:"var(--ink-3)",background:"var(--surface)",border:"1px solid var(--line)",borderRadius:999,padding:"1px 6px"}}>🖥️ {cubDevices.length}</div>}
-                      {isReserved&&isSel&&<div onMouseDown={e=>startResize(e,cub)} title="Drag to resize"
+                      {canEdit&&isReserved&&isSel&&<div onMouseDown={e=>startResize(e,cub)} title="Drag to resize"
                         style={{position:"absolute",bottom:-2,right:-2,width:14,height:14,cursor:"nwse-resize",
                           background:"var(--brand)",border:"2px solid #fff",borderRadius:3,zIndex:5}}/>}
                     </div>
@@ -1174,27 +1178,27 @@ function App(){
                   <button onClick={()=>setSelected(null)} style={{background:"none",border:"none",fontSize:19,cursor:"pointer",color:"var(--ink-3)"}}>×</button>
                 </div>
 
-                {selected.role!=="__block__"&&selected.role!=="__wall__"&&(
+                {canEdit&&selected.role!=="__block__"&&selected.role!=="__wall__"&&(
                   <Segment options={[["view","View"],["devices","Devices"],["person","Person"]]} value={panel}
                     onChange={(p)=>{setPanel(p);if(p==="devices")setDevicesForm(withStandardSlots((selected.devices||[]).map(d=>({...d}))));if(p==="person")setPersonForm({name:selected.name,role:selected.role});}}/>
                 )}
 
-                {(panel==="view"||selected.role==="__block__"||selected.role==="__wall__")&&(
+                {(!canEdit||panel==="view"||selected.role==="__block__"||selected.role==="__wall__")&&(
                   <>
                     {selected.role!=="__block__"&&selected.role!=="__wall__"&&(
                       <>
                         <div style={{fontSize:12,fontWeight:600,color:"var(--ink-2)",marginBottom:8}}>Devices ({(selected.devices||[]).length})</div>
-                        <DeviceList devices={selected.devices} expanded={expandedDevices} setExpanded={setExpandedDevices} onRemove={removeDeviceInline}/>
+                        <DeviceList devices={selected.devices} expanded={expandedDevices} setExpanded={setExpandedDevices} onRemove={canEdit?removeDeviceInline:()=>{}}/>
                         {selected.notes&&<div style={{background:"#FEFAE8",border:"1px solid #F5E4A6",borderRadius:"var(--r-sm)",padding:"8px 11px",fontSize:12,color:"#7A5A16",marginBottom:10}}>📝 {selected.notes}</div>}
                       </>
                     )}
-                    <button onClick={()=>setConfirm({id:selected.id,name:selected.name||"Block"})} style={{...btn("var(--surface)","var(--danger)"),width:"100%",padding:"9px 0",fontSize:12.5,border:"1px solid #F6C9CB",boxShadow:"none",marginTop:4}}>
+                    {canEdit&&<button onClick={()=>setConfirm({id:selected.id,name:selected.name||"Block"})} style={{...btn("var(--surface)","var(--danger)"),width:"100%",padding:"9px 0",fontSize:12.5,border:"1px solid #F6C9CB",boxShadow:"none",marginTop:4}}>
                       {selected.role==="__block__"?"Remove block":selected.role==="__wall__"?"Remove wall":"Remove / move to WFH"}
-                    </button>
+                    </button>}
                   </>
                 )}
 
-                {panel==="devices"&&devicesForm&&selected.role!=="__block__"&&selected.role!=="__wall__"&&(
+                {canEdit&&panel==="devices"&&devicesForm&&selected.role!=="__block__"&&selected.role!=="__wall__"&&(
                   <>
                     {(()=>{const recs=inventory.filter(i=>(i.assigned_to||"").trim().toLowerCase()===(selected.name||"").trim().toLowerCase());
                       return (<div style={{marginBottom:12,padding:"9px 11px",background:"var(--brand-wash)",border:"1px solid #FBD9BC",borderRadius:"var(--r-sm)"}}>
@@ -1207,7 +1211,7 @@ function App(){
                   </>
                 )}
 
-                {panel==="person"&&personForm&&selected.role!=="__block__"&&selected.role!=="__wall__"&&(
+                {canEdit&&panel==="person"&&personForm&&selected.role!=="__block__"&&selected.role!=="__wall__"&&(
                   <>
                     <div style={{fontSize:12,fontWeight:600,color:"var(--ink-2)",marginBottom:8}}>{selected.name?"Edit person":"Assign this desk"}</div>
                     <div style={{marginBottom:11}}><div style={lStyle}>Name</div><input value={personForm.name} onChange={e=>setPersonForm(f=>({...f,name:e.target.value}))} placeholder="Type a name to assign" style={iStyle}/></div>

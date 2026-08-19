@@ -13,8 +13,8 @@ import {
   query, where, serverTimestamp, Timestamp, onSnapshot
 } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
-import { firebaseConfig, ALLOWED_EMAIL_DOMAIN, SUPER_ADMIN_EMAILS, USERNAME_MAP } from "./config.js?v=46";
-import { INVENTORY_SEED, INVENTORY_STATUSES, INVENTORY_MODELS, INVENTORY_CATEGORIES, CATEGORY_MAX } from "./inventory-seed.js?v=46";
+import { firebaseConfig, ALLOWED_EMAIL_DOMAIN, SUPER_ADMIN_EMAILS, USERNAME_MAP } from "./config.js?v=47";
+import { INVENTORY_SEED, INVENTORY_STATUSES, INVENTORY_MODELS, INVENTORY_CATEGORIES, CATEGORY_MAX } from "./inventory-seed.js?v=47";
 
 const isSuperAdminEmail = (email) =>
   (SUPER_ADMIN_EMAILS || []).map((e) => e.toLowerCase()).includes((email || "").toLowerCase());
@@ -39,7 +39,7 @@ const C = {
 };
 
 // ---------- App meta ----------
-const APP_VERSION = "v4.5.1";
+const APP_VERSION = "v5.0.0";
 
 // ---------- Night mode (personal preference, stored per-browser) ----------
 const THEME_KEY = "vulcan_theme";
@@ -90,8 +90,9 @@ let INV_TAB = "CPU";      // active Inventory category tab
 const ROLE_LABELS = {
   super_admin: "Super admin", it_admin: "IT admin", it_agent: "IT agent",
   supervisor: "Supervisor", agent: "Agent", admin: "IT admin",
+  map: "Map (view only)", map_editor: "Map editor",
 };
-const ROLE_OPTIONS = ["agent", "supervisor", "it_agent", "it_admin", "super_admin"];
+const ROLE_OPTIONS = ["map", "map_editor", "agent", "supervisor", "it_agent", "it_admin", "super_admin"];
 function baseRole() {
   if (ME && isSuperAdminEmail(ME.email)) return "super_admin";
   return (ME && ME.role) || "agent";
@@ -100,7 +101,7 @@ function effRole() { return PREVIEW_ROLE || baseRole(); }
 const CAP = {
   adminDash:      ["super_admin", "it_admin", "admin", "supervisor"],
   management:     ["super_admin", "it_admin", "admin"],
-  mapEdit:        ["super_admin", "it_admin", "admin"],
+  mapEdit:        ["super_admin", "it_admin", "admin", "map_editor"],
   seeTasks:       ["super_admin", "it_admin", "admin"],
   addTasks:       ["super_admin", "it_admin", "admin"],
   itStaff:        ["super_admin", "it_admin", "admin", "it_agent"],
@@ -335,13 +336,13 @@ async function bootstrapUser(user) {
       name: user.displayName || user.email,
       email: user.email,
       profile_picture: user.photoURL || "",
-      role: "agent",
+      role: "map",
       created_at: serverTimestamp(),
     };
     await setDoc(ref, data);
-    // New users must be created as 'agent' (rules enforce this). If this is a
-    // configured super admin, promote right after — allowed because the rules
-    // grant them admin by email.
+    // New users must be created as 'map' (rules enforce this — see
+    // firestore.rules). If this is a configured super admin, promote right
+    // after — allowed because the rules grant them admin by email.
     if (isSuperAdminEmail(user.email)) {
       await updateDoc(ref, { role: "super_admin" });
       data.role = "super_admin";
@@ -375,6 +376,8 @@ function navFor(role) {
   const REP = ["reports", "Time Reports", icon("chart")];
   const SET = ["settings", "Settings", icon("cog")];
   switch (role) {
+    case "map":         return [MAP];
+    case "map_editor":  return [MAP];
     case "agent":       return [D, MAP];
     case "it_agent":    return [D, MYTASKS, IT, SHOP, INV, MAP];
     case "supervisor":  return [MYTASKS, IT, SHOP, MAP];
@@ -789,8 +792,9 @@ function render() {
 // Office map — self-contained page embedded in an iframe (visible to everyone)
 function viewMap(highlight) {
   const h = highlight ? "&highlight=" + encodeURIComponent(highlight) : "";
+  const canEditMap = effRole() !== "map"; // the "map" role is view-only; everyone else (including map_editor) can edit
   pendingHighlight = null;
-  viewEl.innerHTML = `<div class="map-wrap"><iframe class="map-frame" src="assets/office-map.html?v=46${h}" title="Office Map"></iframe></div>`;
+  viewEl.innerHTML = `<div class="map-wrap"><iframe class="map-frame" src="assets/office-map.html?v=46&edit=${canEditMap ? 1 : 0}${h}" title="Office Map"></iframe></div>`;
 }
 
 // IT Service board + Inventory placeholder are defined lower in the file.
