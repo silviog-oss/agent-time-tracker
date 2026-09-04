@@ -13,8 +13,8 @@ import {
   query, where, serverTimestamp, Timestamp, onSnapshot
 } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
-import { firebaseConfig, ALLOWED_EMAIL_DOMAIN, SUPER_ADMIN_EMAILS, USERNAME_MAP } from "./config.js?v=47";
-import { INVENTORY_SEED, INVENTORY_STATUSES, INVENTORY_MODELS, INVENTORY_CATEGORIES, CATEGORY_MAX } from "./inventory-seed.js?v=47";
+import { firebaseConfig, ALLOWED_EMAIL_DOMAIN, SUPER_ADMIN_EMAILS, USERNAME_MAP } from "./config.js?v=50";
+import { INVENTORY_SEED, INVENTORY_STATUSES, INVENTORY_MODELS, INVENTORY_CATEGORIES, CATEGORY_MAX } from "./inventory-seed.js?v=50";
 
 const isSuperAdminEmail = (email) =>
   (SUPER_ADMIN_EMAILS || []).map((e) => e.toLowerCase()).includes((email || "").toLowerCase());
@@ -39,7 +39,7 @@ const C = {
 };
 
 // ---------- App meta ----------
-const APP_VERSION = "v5.0.0";
+const APP_VERSION = "v5.3.0";
 
 // ---------- Night mode (personal preference, stored per-browser) ----------
 const THEME_KEY = "vulcan_theme";
@@ -794,7 +794,7 @@ function viewMap(highlight) {
   const h = highlight ? "&highlight=" + encodeURIComponent(highlight) : "";
   const canEditMap = effRole() !== "map"; // the "map" role is view-only; everyone else (including map_editor) can edit
   pendingHighlight = null;
-  viewEl.innerHTML = `<div class="map-wrap"><iframe class="map-frame" src="assets/office-map.html?v=46&edit=${canEditMap ? 1 : 0}${h}" title="Office Map"></iframe></div>`;
+  viewEl.innerHTML = `<div class="map-wrap"><iframe class="map-frame" src="assets/office-map.html?v=49&edit=${canEditMap ? 1 : 0}&role=${encodeURIComponent(effRole())}${h}" title="Office Map"></iframe></div>`;
 }
 
 // IT Service board + Inventory placeholder are defined lower in the file.

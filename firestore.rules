@@ -114,6 +114,14 @@ service cloud.firestore {
     function canEditMap() {
       return isSignedIn() && myRole() != 'map';
     }
+    // "map" and "map_editor" are both map-restricted roles — they submit
+    // change requests instead of resolving them. Everyone else can review.
+    function isMapRestricted() {
+      return isSignedIn() && myRole() in ['map','map_editor'];
+    }
+    function canReviewMapRequests() {
+      return isSignedIn() && !isMapRestricted();
+    }
 
     // ---- IT requests ----
     match /it_requests/{id} {
@@ -142,6 +150,13 @@ service cloud.firestore {
     match /settings/{id} {
       allow read: if isSignedIn();
       allow write: if canEditMap();
+    }
+
+    // ---- Map change requests — map/map_editor submit, everyone else reviews ----
+    match /map_requests/{id} {
+      allow read:   if isSignedIn();
+      allow create: if isSignedIn() && request.resource.data.requested_by == request.auth.uid;
+      allow update, delete: if canReviewMapRequests();
     }
 
     // ---- Map history snapshots — anyone may read; only editors write ----
