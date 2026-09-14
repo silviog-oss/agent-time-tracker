@@ -39,7 +39,7 @@ const C = {
 };
 
 // ---------- App meta ----------
-const APP_VERSION = "v5.3.0";
+const APP_VERSION = "v6.0.0";
 
 // ---------- Night mode (personal preference, stored per-browser) ----------
 const THEME_KEY = "vulcan_theme";
@@ -305,24 +305,12 @@ function showLoadError(err) {
 
 // ---------- IT notification bell ----------
 function startBellWatch() {
+  // IT Service (and its notification bell) is no longer part of Vulcan —
+  // the app is map-only now. Keep the bell hidden unconditionally rather
+  // than deleting this function, so nothing else that references it breaks.
   const btn = $("bell-btn");
   if (bellUnsub) { try { bellUnsub(); } catch (_) {} bellUnsub = null; }
-  const staff = can("itStaff");
-  const creator = can("createReq");
-  if (!staff && !creator) { btn.classList.add("hidden"); return; }
-  btn.classList.remove("hidden");
-  btn.onclick = () => go("it");
-  bellUnsub = onSnapshot(C.it_requests, (snap) => {
-    let n = 0;
-    snap.forEach((d) => {
-      const r = d.data();
-      if (staff && r.status === "open") n++;
-      else if (!staff && r.created_by === ME.uid && (r.status === "accepted" || r.status === "done")) n++;
-    });
-    const c = $("bell-count");
-    if (n > 0) { c.textContent = n > 9 ? "9+" : String(n); c.classList.remove("hidden"); }
-    else c.classList.add("hidden");
-  }, (err) => console.warn("bell:", err.message));
+  if (btn) btn.classList.add("hidden");
 }
 
 // Create or read the user's profile doc.
@@ -364,28 +352,13 @@ async function bootstrapUser(user) {
 //  App shell + navigation
 // ============================================================
 function navFor(role) {
-  const D = ["dashboard", "Dashboard", icon("grid")];
   const MAP = ["map", "Map", icon("map")];
-  const IT = ["it", "IT Service", icon("bolt")];
-  const SHOP = ["shopping", "Shopping", icon("cart")];
-  const INV = ["inventory", "Inventory", icon("box")];
-  const TASKS = ["tasks", "Tasks", icon("check")];
-  const MYTASKS = ["my-tasks", "My Tasks", icon("check")];
-  const AGENTS = ["agents", "Agents", icon("users")];
-  const ACT = ["activity", "Activity", icon("list")];
-  const REP = ["reports", "Time Reports", icon("chart")];
   const SET = ["settings", "Settings", icon("cog")];
-  switch (role) {
-    case "map":         return [MAP];
-    case "map_editor":  return [MAP];
-    case "agent":       return [D, MAP];
-    case "it_agent":    return [D, MYTASKS, IT, SHOP, INV, MAP];
-    case "supervisor":  return [MYTASKS, IT, SHOP, MAP];
-    case "it_admin":
-    case "admin":       return [AGENTS, TASKS, ACT, REP, IT, SHOP, INV, MAP];
-    case "super_admin": return [AGENTS, TASKS, ACT, REP, IT, SHOP, INV, MAP, SET];
-    default:            return [D, MAP];
-  }
+  // Vulcan is now map-only: every role sees just the map. Super admin also
+  // keeps Settings, since that's the only place to promote someone from the
+  // view-only "map" role to "map_editor" (or manage anyone's role at all).
+  if (role === "super_admin") return [MAP, SET];
+  return [MAP];
 }
 // First nav item for a role — used as the landing page after login (Dashboard
 // isn't in every role's nav anymore, so we can't always default to it).
