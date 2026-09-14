@@ -39,7 +39,7 @@ const C = {
 };
 
 // ---------- App meta ----------
-const APP_VERSION = "v6.0.0";
+const APP_VERSION = "v6.1.0";
 
 // ---------- Night mode (personal preference, stored per-browser) ----------
 const THEME_KEY = "vulcan_theme";
@@ -276,7 +276,7 @@ onAuthStateChanged(auth, async (user) => {
     startBellWatch();
     go(defaultRouteFor(effRole()));
   } catch (err) {
-    console.error("Vulcan failed to load:", err);
+    console.error("Office Map failed to load:", err);
     showLoadError(err);
   }
 });
@@ -289,7 +289,7 @@ function showLoadError(err) {
         <path d="M3 7h11a6 6 0 0 0 5 3l2-2v4.2A5.8 5.8 0 0 1 15.2 18H12l1.4 3H6.6L8 18H7a4 4 0 0 1-4-4V7Z" fill="currentColor"/>
         <rect x="6" y="21" width="12" height="2" rx="1" fill="currentColor"/>
       </svg></span>
-      <div class="splash-mark">Vulcan</div>
+      <div class="splash-mark">Office Map</div>
     </div>
     <p style="color:#DC2626;font-size:13px;margin-top:16px;max-width:340px;text-align:center;padding:0 20px;line-height:1.5;">
       Couldn't load your account.<br>
@@ -353,12 +353,13 @@ async function bootstrapUser(user) {
 // ============================================================
 function navFor(role) {
   const MAP = ["map", "Map", icon("map")];
+  const PARK = ["parking", "Parking Map", icon("car")];
   const SET = ["settings", "Settings", icon("cog")];
   // Vulcan is now map-only: every role sees just the map. Super admin also
   // keeps Settings, since that's the only place to promote someone from the
   // view-only "map" role to "map_editor" (or manage anyone's role at all).
-  if (role === "super_admin") return [MAP, SET];
-  return [MAP];
+  if (role === "super_admin") return [MAP, PARK, SET];
+  return [MAP, PARK];
 }
 // First nav item for a role — used as the landing page after login (Dashboard
 // isn't in every role's nav anymore, so we can't always default to it).
@@ -740,13 +741,15 @@ const TITLES = {
   dashboard: "Dashboard", "my-tasks": "My Tasks", "my-activity": "My Activity",
   "my-time": "My Time", profile: "Profile", agents: "Agents", tasks: "Tasks",
   activity: "Activity", reports: "Time Reports", map: "Office Map",
+  parking: "Parking Map",
   it: "IT Service", shopping: "Shopping", inventory: "Inventory", settings: "Settings",
 };
 function render() {
   clearView();
   titleEl.textContent = TITLES[ROUTE] || "Dashboard";
-  viewEl.classList.toggle("view--wide", ROUTE === "map");
+  viewEl.classList.toggle("view--wide", ROUTE === "map" || ROUTE === "parking");
   if (ROUTE === "map") return viewMap(pendingHighlight);
+  if (ROUTE === "parking") return viewParking();
   if (ROUTE === "it") return can("createReq") || can("itStaff") ? viewITService() : go(defaultRouteFor(effRole()));
   if (ROUTE === "shopping") return can("shoppingCreate") || can("shoppingView") ? viewShopping() : go(defaultRouteFor(effRole()));
   if (ROUTE === "inventory") return viewInventory();
@@ -768,6 +771,12 @@ function viewMap(highlight) {
   const canEditMap = effRole() !== "map"; // the "map" role is view-only; everyone else (including map_editor) can edit
   pendingHighlight = null;
   viewEl.innerHTML = `<div class="map-wrap"><iframe class="map-frame" src="assets/office-map.html?v=49&edit=${canEditMap ? 1 : 0}&role=${encodeURIComponent(effRole())}${h}" title="Office Map"></iframe></div>`;
+}
+
+// Parking map — same permission model as the office map, separate self-contained page.
+function viewParking() {
+  const canEditMap = effRole() !== "map";
+  viewEl.innerHTML = `<div class="map-wrap"><iframe class="map-frame" src="assets/parking-map.html?v=1&edit=${canEditMap ? 1 : 0}&role=${encodeURIComponent(effRole())}" title="Parking Map"></iframe></div>`;
 }
 
 // IT Service board + Inventory placeholder are defined lower in the file.
@@ -2001,7 +2010,7 @@ async function viewSettings() {
       <div class="settings-row">
         <div>
           <div class="settings-row-label">Night mode</div>
-          <div class="settings-row-hint">Switches Vulcan to a dark theme on this browser. Everyone sets their own — it doesn't affect anyone else.</div>
+          <div class="settings-row-hint">Switches Office Map to a dark theme on this browser. Everyone sets their own — it doesn't affect anyone else.</div>
         </div>
         <label class="switch">
           <input type="checkbox" id="settings-theme-toggle" ${dark ? "checked" : ""} />
@@ -2356,6 +2365,7 @@ function icon(name) {
     users: '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
     chart: '<line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>',
     cog: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>',
+    car: '<path d="M5 17h14M5 17a2 2 0 0 1-2-2v-2.5l2-4.5h14l2 4.5V15a2 2 0 0 1-2 2M5 17a2 2 0 1 0 4 0m10 0a2 2 0 1 1-4 0M5 17h10"/><circle cx="7" cy="17" r="2"/><circle cx="17" cy="17" r="2"/>',
   }[name];
   return `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${p}</svg>`;
 }
