@@ -39,7 +39,7 @@ const C = {
 };
 
 // ---------- App meta ----------
-const APP_VERSION = "v6.1.0";
+const APP_VERSION = "v6.2.0";
 
 // ---------- Night mode (personal preference, stored per-browser) ----------
 const THEME_KEY = "vulcan_theme";
@@ -776,7 +776,7 @@ function viewMap(highlight) {
 // Parking map — same permission model as the office map, separate self-contained page.
 function viewParking() {
   const canEditMap = effRole() !== "map";
-  viewEl.innerHTML = `<div class="map-wrap"><iframe class="map-frame" src="assets/parking-map.html?v=1&edit=${canEditMap ? 1 : 0}&role=${encodeURIComponent(effRole())}" title="Parking Map"></iframe></div>`;
+  viewEl.innerHTML = `<div class="map-wrap"><iframe class="map-frame" src="assets/parking-map.html?v=2&edit=${canEditMap ? 1 : 0}&role=${encodeURIComponent(effRole())}" title="Parking Map"></iframe></div>`;
 }
 
 // IT Service board + Inventory placeholder are defined lower in the file.

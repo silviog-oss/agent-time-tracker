@@ -125,6 +125,7 @@ function App() {
   const [confirmDelete, setConfirmDelete] = useState(null);
   const canvasRef = useRef(null);
   const dragRef = useRef(null); // {id, startX, startY, origX, origY}
+  const rotateRef = useRef(null); // {id, cx, cy, startAngle, startRot}
   const hasUnsavedRef = useRef(false);
   useEffect(() => { hasUnsavedRef.current = hasUnsaved; }, [hasUnsaved]);
 
@@ -167,8 +168,9 @@ function App() {
 
   function addSpotAt(x, y) {
     if (!canEdit) return;
+    const SNAP = 10;
     const id = Date.now();
-    const s = { id, x: Math.round(x - 35), y: Math.round(y - 65), w: 70, h: 130, rot: 0, label: "", name: "", email: "", phone: "", plate: "", notes: "" };
+    const s = { id, x: Math.round((x - 35) / SNAP) * SNAP, y: Math.round((y - 65) / SNAP) * SNAP, w: 70, h: 130, rot: 0, label: "", name: "", email: "", phone: "", plate: "", carColor: "", notes: "" };
     updateSpots([...spots, s]);
     selectSpot(s);
   }
@@ -188,6 +190,7 @@ function App() {
     selectSpot(s);
   }
   useEffect(() => {
+    const SNAP = 10; // px — spots "stick" to a grid so rows line up cleanly
     function onMove(e) {
       if (!dragRef.current) return;
       const d = dragRef.current;
@@ -195,9 +198,39 @@ function App() {
       const dy = (e.clientY - d.startY) / zoom;
       if (Math.abs(dx) > 2 || Math.abs(dy) > 2) d.moved = true;
       if (!d.moved) return;
-      updateSpots(spots.map((s) => s.id === d.id ? { ...s, x: Math.round(d.origX + dx), y: Math.round(d.origY + dy) } : s));
+      const nx = Math.round((d.origX + dx) / SNAP) * SNAP;
+      const ny = Math.round((d.origY + dy) / SNAP) * SNAP;
+      updateSpots(spots.map((s) => s.id === d.id ? { ...s, x: nx, y: ny } : s));
     }
     function onUp() { dragRef.current = null; }
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => { window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); };
+  }, [spots, zoom, activeFloor]);
+
+  function startRotate(e, s) {
+    if (!canEdit) return;
+    e.stopPropagation();
+    const rect = canvasRef.current.getBoundingClientRect();
+    const cx = rect.left + (s.x + s.w / 2) * zoom;
+    const cy = rect.top + (s.y + s.h / 2) * zoom;
+    const startAngle = Math.atan2(e.clientY - cy, e.clientX - cx) * (180 / Math.PI);
+    rotateRef.current = { id: s.id, cx, cy, startAngle, startRot: s.rot || 0 };
+    selectSpot(s);
+  }
+  useEffect(() => {
+    function onMove(e) {
+      if (!rotateRef.current) return;
+      const r = rotateRef.current;
+      const angle = Math.atan2(e.clientY - r.cy, e.clientX - r.cx) * (180 / Math.PI);
+      const delta = angle - r.startAngle;
+      // Snap to 15° steps — matches the rotate buttons, keeps rows tidy.
+      const next = Math.round((r.startRot + delta) / 15) * 15;
+      const norm = ((next % 360) + 360) % 360;
+      updateSpots(spots.map((s) => s.id === r.id ? { ...s, rot: norm } : s));
+      setForm((f) => (f && f.id === r.id) ? { ...f, rot: norm } : f);
+    }
+    function onUp() { rotateRef.current = null; }
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
     return () => { window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); };
@@ -301,10 +334,26 @@ function App() {
                         border: `2px solid ${s.name ? "var(--brand)" : "var(--line-2)"}`,
                         borderStyle: s.name ? "solid" : "dashed",
                         borderRadius: 6, cursor: canEdit ? "grab" : "pointer",
-                        display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-                        padding: 4, textAlign: "center", userSelect: "none", overflow: "hidden" }}>
-                      <div style={{ fontSize: 11, fontWeight: 700, color: "var(--ink)" }}>{s.label || "—"}</div>
-                      {s.name && <div style={{ fontSize: 9.5, color: "var(--ink-2)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "100%" }}>{s.name}</div>}
+                        userSelect: "none" }}>
+                      <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column",
+                        alignItems: "center", justifyContent: "center", padding: 4, textAlign: "center",
+                        overflow: "hidden", borderRadius: 4 }}>
+                        {s.name && (
+                          <svg width="22" height="40" viewBox="0 0 22 40" style={{ marginBottom: 2, flexShrink: 0 }}>
+                            <rect x="1" y="1" width="20" height="38" rx="7" fill={s.carColor || "#9CA3AF"} stroke="rgba(0,0,0,.25)" strokeWidth="1" />
+                            <rect x="4" y="6" width="14" height="9" rx="3" fill="rgba(0,0,0,.22)" />
+                            <rect x="4" y="24" width="14" height="8" rx="3" fill="rgba(0,0,0,.16)" />
+                          </svg>
+                        )}
+                        <div style={{ fontSize: 11, fontWeight: 700, color: "var(--ink)" }}>{s.label || "—"}</div>
+                        {s.name && <div style={{ fontSize: 9.5, color: "var(--ink-2)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "100%" }}>{s.name}</div>}
+                      </div>
+                      {canEdit && isSel && (
+                        <div onMouseDown={(e) => startRotate(e, s)} title="Drag to rotate"
+                          style={{ position: "absolute", top: -22, left: "50%", transform: "translateX(-50%)",
+                            width: 12, height: 12, borderRadius: "50%", background: "var(--brand)",
+                            border: "2px solid #fff", boxShadow: "var(--sh-1)", cursor: "grab", zIndex: 6 }} />
+                      )}
                     </div>
                   );
                 })}
@@ -339,6 +388,13 @@ function App() {
                 </div>
                 <div style={{ marginBottom: 11 }}><div style={lStyle}>License plate</div>
                   <input value={form.plate} disabled={!canEdit} onChange={(e) => setForm((f) => ({ ...f, plate: e.target.value }))} placeholder="ABC-1234" style={iStyle} />
+                </div>
+                <div style={{ marginBottom: 11 }}><div style={lStyle}>Car color</div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <input type="color" value={form.carColor || "#9CA3AF"} disabled={!canEdit} onChange={(e) => setForm((f) => ({ ...f, carColor: e.target.value }))}
+                      style={{ width: 40, height: 34, border: "1px solid var(--line-2)", borderRadius: 8, padding: 2, cursor: canEdit ? "pointer" : "default", background: "var(--surface)" }} />
+                    <span style={{ fontSize: 12, color: "var(--ink-2)", fontFamily: "var(--mono)" }}>{form.carColor || "no color set"}</span>
+                  </div>
                 </div>
                 {canEdit && (
                   <>
